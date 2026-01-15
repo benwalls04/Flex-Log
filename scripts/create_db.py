@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS users (
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS exercises (
     id INTEGER PRIMARY KEY,
-    title TEXT,
+    variant TEXT
+    machine_type TEXT,
+    name TEXT,
     chest INTEGER,
     back INTEGER,
     legs INTEGER,
@@ -38,7 +40,7 @@ CREATE TABLE IF NOT EXISTS exercises (
 # Logs table with composite key and foreign keys
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS logs (
-    user_id INTEGER,b
+    user_id INTEGER,
     timestamp TEXT,
     exercise_id INTEGER,
     weight FLOAT,
@@ -46,6 +48,16 @@ CREATE TABLE IF NOT EXISTS logs (
     PRIMARY KEY (user_id, timestamp),
     FOREIGN KEY (user_id) REFERENCES users(id),
     FOREIGN KEY (exercise_id) REFERENCES exercises(id)
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS workouts (
+    workout_id INTEGER PRIMARY KEY, 
+    user_id INTEGER,
+    name TEXT, 
+    date TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id)
 )
 """)
 
@@ -60,6 +72,34 @@ CREATE TABLE IF NOT EXISTS favorites (
 )
 """)
 
-conn.commit()
+import pandas as pd 
+excel_path = "data/test_database.xlsx"
 
+integer_columns = {
+    "users": ["id"],
+    "exercises": ["id","chest","back","legs","shoulders","biceps","triceps",
+                  "misc_group","barbell","dumbbell","machine","cable","smith","misc_machine"],
+    "logs": ["user_id","exercise_id","reps"],
+    "workouts": ["workout_id","user_id"],
+    "favorites": ["user_id","exercise_id"]
+}
+
+tables = ["users", "exercises", "logs", "workouts", "favorites"]
+
+for table_name in tables:
+    # Read sheet
+    df = pd.read_excel(excel_path, sheet_name=table_name)
+    
+    # Fill integer NaNs with 0
+    int_cols = [col for col in integer_columns.get(table_name, []) if col in df.columns]
+    df[int_cols] = df[int_cols].fillna(0).astype(int)
+    
+    # Fill other columns' NaNs with empty string
+    non_int_cols = [col for col in df.columns if col not in int_cols]
+    df[non_int_cols] = df[non_int_cols].fillna("")
+    
+    # Insert into database
+    df.to_sql(table_name, conn, if_exists="append", index=False)
+
+conn.commit()
 conn.close()

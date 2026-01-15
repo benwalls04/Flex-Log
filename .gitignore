@@ -11,6 +11,8 @@ __pycache__/
 **/venv/
 **/.venv/
 
+data/ 
+
 # Distribution / packaging
 *.egg
 *.egg-info/
