@@ -1,6 +1,6 @@
 import sqlite3
 
-conn = sqlite3.connect("./data/database.db")
+conn = sqlite3.connect("./data/test_database.db")
 cursor = conn.cursor()
 
 # Enable foreign key support
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS exercises (
     id INTEGER PRIMARY KEY,
-    variant TEXT
+    variant TEXT,
     machine_type TEXT,
     name TEXT,
     chest INTEGER,
@@ -37,6 +37,16 @@ CREATE TABLE IF NOT EXISTS exercises (
 )
 """)
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS workouts (
+    id INTEGER PRIMARY KEY, 
+    user_id INTEGER,
+    name TEXT, 
+    date TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+)
+""")
+
 # Logs table with composite key and foreign keys
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS logs (
@@ -45,19 +55,11 @@ CREATE TABLE IF NOT EXISTS logs (
     exercise_id INTEGER,
     weight FLOAT,
     reps INTEGER,
+    workout_id INTEGER, 
     PRIMARY KEY (user_id, timestamp),
     FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (exercise_id) REFERENCES exercises(id)
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS workouts (
-    workout_id INTEGER PRIMARY KEY, 
-    user_id INTEGER,
-    name TEXT, 
-    date TEXT,
-    FOREIGN KEY (user_id) REFERENCES users(id)
+    FOREIGN KEY (exercise_id) REFERENCES exercises(id),
+    FOREIGN KEY (workout_id) references workouts(id)
 )
 """)
 
@@ -79,16 +81,22 @@ integer_columns = {
     "users": ["id"],
     "exercises": ["id","chest","back","legs","shoulders","biceps","triceps",
                   "misc_group","barbell","dumbbell","machine","cable","smith","misc_machine"],
-    "logs": ["user_id","exercise_id","reps"],
-    "workouts": ["workout_id","user_id"],
+    "logs": ["user_id","exercise_id","workout_id", "reps"],
+    "workouts": ["id","user_id"],
     "favorites": ["user_id","exercise_id"]
 }
 
-tables = ["users", "exercises", "logs", "workouts", "favorites"]
+tables = ["users", "exercises", "workouts", "logs", "favorites"]
 
 for table_name in tables:
     # Read sheet
     df = pd.read_excel(excel_path, sheet_name=table_name)
+
+    print(table_name)
+
+    cursor.execute(f"SELECT * FROM {table_name}")
+    if len(cursor.fetchall()) > 0:
+        continue
     
     # Fill integer NaNs with 0
     int_cols = [col for col in integer_columns.get(table_name, []) if col in df.columns]
