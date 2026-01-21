@@ -4,3 +4,6 @@ pydantic
 sqlalchemy
 scikit-learn
 numpy
+pandas
+argparse
+joblib
