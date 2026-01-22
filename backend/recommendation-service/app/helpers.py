@@ -1,6 +1,7 @@
 import sqlite3
 from fastapi import HTTPException
 from pathlib import Path
+from app.label_manager import LabelManager
 import pandas as pd
 import numpy as np
 import joblib
@@ -11,19 +12,10 @@ if "DATABASE_PATH" in os.environ:
 else:
     DB_PATH = (
         Path(__file__).resolve()
-        .parent.parent   # app/
+        .parents[3]   
         / "data"
         / "test_database.db"
     )
-
-
-MUSCLE_GROUPS = ["chest", "back", "legs", "shoulders", "biceps", "triceps", "misc_group"]
-DAY_LABELS = ["chest_day", "back_day", "legs_day", "shoulders_day", "biceps_day", "triceps_day"]
-MACHINE_LABELS = ["barbell", "dumbbell", "machine", "cable", "smith", "misc_machine"]
-TYPE_LABELS = ["isolation", "compound"]
-
-EXERCISE_LABELS = MUSCLE_GROUPS + MACHINE_LABELS + TYPE_LABELS
-FEATURE_LABELS = [f"prev_{col}" for col in EXERCISE_LABELS] + DAY_LABELS
 
 def test_db():
   with sqlite3.connect(DB_PATH) as conn: 
@@ -32,20 +24,43 @@ def test_db():
       cursor.execute("SELECT * FROM USERS")
       rows = cursor.fetchall()
       return [dict(row) for row in rows]
+  
+def encode_features(df, workout_name=None, column_mapping=None):
+    for group in LabelManager.MUSCLE_GROUPS: 
+        if "workout_name" in df.columns: 
+            df[f"{group}_day"] = df["workout_name"].str.contains(group, case=False).astype(int)
+        else: 
+            df[f"{group}_day"] = int(group.lower() in workout_name.lower() if workout_name else False)
+    
+    if column_mapping is None:
+        column_mapping = {
+            "muscle_group": LabelManager.MUSCLE_GROUPS,
+            "machine_type": LabelManager.MACHINE_LABELS,
+            "exercise_type": LabelManager.TYPE_LABELS
+        }
 
-def get_train_features(user_id: int):
+    for col, categories in column_mapping.items():
+        if col not in df.columns:
+            continue
+        df[col] = df[col].str.lower()
+        categories_lower = [c.lower() for c in categories]
+        for cat in categories_lower:
+            df[cat] = (df[col] == cat).astype(int)
+        df.drop(columns=[col], inplace=True)
+    
+    return df
+
+def get_train_features(user_id: int): 
+  print(DB_PATH)     
   with sqlite3.connect(DB_PATH) as conn:
     cursor = conn.cursor()
     cursor.execute("""
         SELECT 
-            l.timestamp, l.first,
+            l.first,
             w.name as workout_name,
-            e.variant,
-            e.machine_type,
-            e.name as exercise_name,
-            e.chest, e.back, e.legs, e.shoulders, e.biceps, e.triceps, e.misc_group,
-            e.barbell, e.dumbbell, e.machine, e.cable, e.smith, e.misc_machine,
-            e.isolation, e.compound
+            e.muscle_group,
+            e.machine_type, 
+            e.exercise_type
         FROM logs l
         JOIN exercises e ON l.exercise_id = e.id
         JOIN workouts w ON l.workout_id = w.id
@@ -56,31 +71,18 @@ def get_train_features(user_id: int):
     rows = cursor.fetchall()
 
     column_names = [
-        "timestamp", "first", "workout_name", 
-        "variant", "machine_type", "exercise_name",
-        "chest","back","legs","shoulders","biceps","triceps","misc_group",
-        "barbell","dumbbell","machine","cable","smith","misc_machine",
-        "isolation","compound"
-      ]
+      "first", "workout_name", "muscle_group", "machine_type", "exercise_type"
+    ]
 
     df = pd.DataFrame(rows, columns=column_names)
 
     df["workout_name"] = df["workout_name"].fillna("")
+    df = encode_features(df)
 
-    for group in MUSCLE_GROUPS: 
-      if group == "misc_group":
-        continue
-      df[f"{group}_day"] = df["workout_name"].str.contains(group, case=False).astype(int) 
-
-    for col in EXERCISE_LABELS:
-        df[f"prev_{col}"] = (
-            df[col]
-            .shift(1)
-            .fillna(0)
-            .astype(int)
-        )
-
-        df.loc[df["first"] == 1, f"prev_{col}"] = 0
+    for col in LabelManager.EXERCISE_LABELS:
+        df[f"target_{col}"] = df[col].copy()
+        df[col] = df[col].shift(1).fillna(0).astype(int)
+        df.loc[df["first"] == 1, col] = 0
     
     return df
   
@@ -89,52 +91,46 @@ def get_inference_features(exercise_id: int, workout_name: str):
       cursor = conn.cursor()
       cursor.execute("""
         SELECT   
-          e.chest, e.back, e.legs, e.shoulders, e.biceps, e.triceps, e.misc_group,
-          e.barbell, e.dumbbell, e.machine, e.cable, e.smith, e.misc_machine,
-          e.isolation, e.compound
-        FROM exercises e
-        WHERE e.id = ?
+          muscle_group, machine_type, exercise_type
+        FROM exercises 
+        WHERE id = ?
       """, (exercise_id, ))
 
       rows = cursor.fetchall()
 
-      df = pd.DataFrame(rows, columns=EXERCISE_LABELS)
-      df = df.add_prefix("prev_")
+      df = pd.DataFrame(rows, columns=["muscle_group", "machine_type", "exercise_type"])
 
-      for group in MUSCLE_GROUPS: 
-          if group == "misc_group":
-            continue
-          df[f"{group}_day"] = int(group.lower() in workout_name.lower() if workout_name else False)
+      df = encode_features(df, workout_name=workout_name)
 
-      missing_cols = [col for col in FEATURE_LABELS if col not in df.columns]
+      missing_cols = [col for col in LabelManager.FEATURE_LABELS if col not in df.columns]
       if missing_cols:
           raise ValueError(f"Missing features in inference dataframe: {missing_cols}")
 
       return df
    
-def recommend_exercises(pred_vector: np.array, workout_name : str, top_n: int):
-  print(pred_vector.shape)
+def get_top_N(pred_vector: np.array, workout_name : str, top_n: int):
 
-  with sqlite3.connect(DB_PATH) as conn: 
-    fields = workout_name.split() + ["misc_group"]
-    conditions = " OR ".join(f"{f} = 1" for f in fields)
-    cursor = conn.cursor()
-    cursor.execute(f"SELECT * FROM exercises WHERE {conditions};")
-    rows = np.array(cursor.fetchall())
-    ids = rows[:,0]
-    features = rows [:,4:].astype(float)
+  with sqlite3.connect(DB_PATH) as conn:
+      groups = workout_name.split()
+      conditions = " OR ".join(f"muscle_group = '{g}'" for g in groups)
+      df = pd.read_sql(f"SELECT * FROM exercises WHERE {conditions};", conn)
+  
+  df_encoded = encode_features(df, workout_name=workout_name)
 
-    pred_vector = np.array(pred_vector).reshape(1, -1)
+  X = df_encoded[LabelManager.EXERCISE_LABELS].astype(float).values
+  pred_vector = np.array(pred_vector).reshape(1, -1)
 
-    pred_norm = pred_vector / np.linalg.norm(pred_vector)
-    features_norm = features / np.linalg.norm(features, axis=1, keepdims=True)
-    similarity = features_norm @ pred_norm.T
+  X_norm = X / np.linalg.norm(X, axis=1, keepdims=True)
+  pred_norm = pred_vector / np.linalg.norm(pred_vector)
+  similarity = X_norm @ pred_norm.T
 
-    top_idx = np.argsort(similarity.ravel())[::-1][:top_n]
-    top_rows = rows[top_idx,0:4]
-    return [tuple(row) for row in top_rows]
-
-  return t5_ids
+  # Get top indices
+  top_idx = np.argsort(similarity.ravel())[::-1][:top_n]
+  return [(
+            int(df.iloc[i]["id"]),
+            df.iloc[i]["variant"],
+            df.iloc[i]["name"],
+          ) for i in top_idx]
 
 def load_model(path: Path):
   if not path.exists():

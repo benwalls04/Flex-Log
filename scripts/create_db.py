@@ -6,12 +6,11 @@ cursor = conn.cursor()
 # Enable foreign key support
 cursor.execute("PRAGMA foreign_keys = ON;")
 
-cursor.execute("DROP TABLE favorites;")
-cursor.execute("DROP TABLE logs;")
-cursor.execute("DROP TABLE workouts;")
-cursor.execute("DROP TABLE exercises;")
-cursor.execute("DROP TABLE users;")
-
+cursor.execute("DROP TABLE IF EXISTS favorites;")
+cursor.execute("DROP TABLE IF EXISTS logs;")
+cursor.execute("DROP TABLE IF EXISTS workouts;")
+cursor.execute("DROP TABLE IF EXISTS exercises;")
+cursor.execute("DROP TABLE IF EXISTS users;")
 
 # Users table
 cursor.execute("""
@@ -26,23 +25,10 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS exercises (
     id INTEGER PRIMARY KEY,
     variant TEXT,
-    machine_type TEXT,
     name TEXT,
-    chest INTEGER,
-    back INTEGER,
-    legs INTEGER,
-    shoulders INTEGER,
-    biceps INTEGER,
-    triceps INTEGER,
-    misc_group INTEGER,
-    barbell INTEGER,
-    dumbbell INTEGER,
-    machine INTEGER,
-    cable INTEGER,
-    smith INTEGER,
-    misc_machine INTEGER,
-    isolation INTEGER, 
-    compound INTEGER
+    muscle_group TEXT CHECK(muscle_group IN ('chest', 'back', 'legs', 'shoulders', 'biceps', 'triceps')),
+    machine_type TEXT CHECK(machine_type IN ('barbell', 'dumbbell', 'machine', 'smith', 'cable', 'smith', 'misc')),
+    exercise_type TEXT CHECK(exercise_type IN ('isolation', 'compound'))
 )
 """)
 
@@ -89,8 +75,7 @@ excel_path = "data/test_database.xlsx"
 
 integer_columns = {
     "users": ["id"],
-    "exercises": ["id","chest","back","legs","shoulders","biceps","triceps",
-                  "misc_group","barbell","dumbbell","machine","cable","smith","misc_machine", "isolation", "compound"],
+    "exercises": ["id"],
     "logs": ["user_id","exercise_id","workout_id", "reps", "first"],
     "workouts": ["id","user_id"],
     "favorites": ["user_id","exercise_id"]
@@ -101,7 +86,8 @@ tables = ["users", "exercises", "workouts", "logs", "favorites"]
 for table_name in tables:
     # Read sheet
     df = pd.read_excel(excel_path, sheet_name=table_name)
-
+    
+    # Skip if table already has data
     cursor.execute(f"SELECT * FROM {table_name}")
     if len(cursor.fetchall()) > 0:
         continue

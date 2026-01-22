@@ -1,2 +1,4 @@
+- make a class for managing feauture names
+- scale recommendations 1/2 with frequency hit by user 
 - add num_{group}_hit to the model, number of workouts hit in that muscle group prior 
-- make a class for managing feauture names, 
+
