@@ -1,0 +1,2 @@
+- add num_{group}_hit to the model, number of workouts hit in that muscle group prior 
+- make a class for managing feauture names, 

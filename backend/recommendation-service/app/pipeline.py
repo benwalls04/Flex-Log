@@ -4,7 +4,8 @@ import pandas as pd
 import joblib
 from pathlib import Path
 from sklearn.linear_model import Ridge
-from app.helpers import get_train_features, FEATURE_LABELS, MUSCLE_GROUPS, MACHINE_LABELS, TYPE_LABELS, EXERCISE_LABELS
+from app.helpers import get_train_features
+from app.helpers import FEATURE_LABELS, MUSCLE_GROUPS, MACHINE_LABELS, TYPE_LABELS
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description="")
@@ -13,26 +14,10 @@ if __name__ == "__main__":
 
   df = get_train_features(args.user_id)
 
-  df["workout_name"] = df["workout_name"].fillna("")
-
-  for group in MUSCLE_GROUPS: 
-    df[f"{group}_day"] = df["workout_name"].str.contains(group, case=False).astype(int) 
-
-  for col in EXERCISE_LABELS:
-      df[f"prev_{col}"] = (
-          df[col]
-          .shift(1)
-          .fillna(0)
-          .astype(int)
-      )
-
-      df.loc[df["first"] == 1, f"prev_{col}"] = 0
-
-  X = df[FEATURE_LABELS].values
-
+  X = df[FEATURE_LABELS].values 
   y_muscle = df[MUSCLE_GROUPS]
-  y_machine = df[MACHINE_GROUPS]
-  y_type = df[TYPE_GROUPS] 
+  y_machine = df[MACHINE_LABELS]
+  y_type = df[TYPE_LABELS] 
 
   ridge_muscle  = Ridge(alpha=1.0).fit(X, y_muscle)
   ridge_machine = Ridge(alpha=1.0).fit(X, y_machine)
