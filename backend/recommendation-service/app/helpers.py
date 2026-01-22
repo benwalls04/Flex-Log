@@ -2,6 +2,7 @@ import sqlite3
 from fastapi import HTTPException
 from pathlib import Path
 from app.label_manager import LabelManager
+from app.sessions import get_session_exercises, add_exercise_to_session
 import pandas as pd
 import numpy as np
 import joblib
@@ -79,7 +80,6 @@ def decode_features(df):
     return decoded_df
 
 def get_train_features(user_id: int): 
-  print(DB_PATH)     
   with sqlite3.connect(DB_PATH) as conn:
     cursor = conn.cursor()
     cursor.execute("""
@@ -115,32 +115,43 @@ def get_train_features(user_id: int):
     return df
   
 def get_inference_features(exercise_id: int, workout_name: str):
-   with sqlite3.connect(DB_PATH) as conn: 
-      cursor = conn.cursor()
-      cursor.execute("""
-        SELECT   
-          muscle_group, machine_type, exercise_type
-        FROM exercises 
-        WHERE id = ?
-      """, (exercise_id, ))
+    with sqlite3.connect(DB_PATH) as conn: 
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT   
+            muscle_group, machine_type, exercise_type
+            FROM exercises 
+            WHERE id = ?
+        """, (exercise_id, ))
 
-      rows = cursor.fetchall()
+        rows = cursor.fetchall()
 
-      df = pd.DataFrame(rows, columns=["muscle_group", "machine_type", "exercise_type"])
+        df = pd.DataFrame(rows, columns=["muscle_group", "machine_type", "exercise_type"])
 
-      df = encode_features(df, workout_name=workout_name)
+        df = encode_features(df, workout_name=workout_name)
 
-      missing_cols = [col for col in LabelManager.FEATURE_LABELS if col not in df.columns]
-      if missing_cols:
-          raise ValueError(f"Missing features in inference dataframe: {missing_cols}")
+        missing_cols = [col for col in LabelManager.FEATURE_LABELS if col not in df.columns]
+        if missing_cols:
+            raise ValueError(f"Missing features in inference dataframe: {missing_cols}")
 
-      return df
+        return df
    
-def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, top_n: int):
+def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, workout_id : int, top_n: int):
+
+    #done_exercises = get_session_exercises(workout_id)
+    done_exercises = {}
+
     with sqlite3.connect(DB_PATH) as conn:
         groups = workout_name.split()
         conditions = " OR ".join(f"muscle_group = '{g}'" for g in groups)
-        df = pd.read_sql(f"SELECT * FROM exercises WHERE {conditions};", conn)
+
+        if done_exercises:
+            exclude_ids = ','.join(str(ex_id) for ex_id in done_exercises)
+            query = f"SELECT * FROM exercises WHERE ({conditions}) AND id NOT IN ({exclude_ids});"
+        else:
+            query = f"SELECT * FROM exercises WHERE {conditions};"
+
+        df = pd.read_sql(query, conn)
     
     df_encoded = encode_features(df, workout_name=workout_name)
 
@@ -180,6 +191,10 @@ def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, top_n: in
     
     topN_results = df_encoded.iloc[top_idx]
     decoded_results = decode_features(topN_results)
+
+    top_exercise_id = int(df_encoded.iloc[top_idx[0]]["id"])
+    add_exercise_to_session(workout_id=workout_id, exercise_id=top_exercise_id)
+
     return decoded_results
 
 def load_model(path: Path):

@@ -17,8 +17,8 @@ def root():
   users = test_db()
   return users
 
-@app.get("/")
-def get_recommendation(exercise_id: int, workout_name: str, user_id: int):
+@app.get("/recommendation")
+async def get_recommendation(user_id : int, workout_id : int, workout_name : str, exercise_id : int):
 
   if "MODEL_PATH" in os.environ:
     MODEL_DIR = Path(os.environ["MODEL_PATH"])
@@ -46,7 +46,13 @@ def get_recommendation(exercise_id: int, workout_name: str, user_id: int):
 
   pred_vector = np.concatenate([muscle_probs, machine_probs, type_probs], axis=1)
 
-  top_recommendations = get_top_N(user_id, pred_vector, workout_name, 5)
+  top_recommendations = get_top_N(
+    user_id=user_id,
+    workout_id=workout_id, 
+    workout_name=workout_name, 
+    pred_vector=pred_vector,
+    top_n=5
+  )
   
   return {
     "top_muslce": muscle_label, 
