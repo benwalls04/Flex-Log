@@ -50,6 +50,34 @@ def encode_features(df, workout_name=None, column_mapping=None):
     
     return df
 
+def decode_features(df):
+    decoded_df = df.copy()
+    
+    # Decode muscle groups
+    muscle_group_cols = [col for col in df.columns if col in [g.lower() for g in LabelManager.MUSCLE_GROUPS]]
+    if muscle_group_cols:
+        decoded_df['muscle_group'] = df[muscle_group_cols].idxmax(axis=1)
+        decoded_df.drop(columns=muscle_group_cols, inplace=True)
+    
+    # Decode machine types
+    machine_cols = [col for col in df.columns if col in [m.lower() for m in LabelManager.MACHINE_LABELS]]
+    if machine_cols:
+        decoded_df['machine_type'] = df[machine_cols].idxmax(axis=1)
+        decoded_df.drop(columns=machine_cols, inplace=True)
+    
+    # Decode exercise types
+    type_cols = [col for col in df.columns if col in [t.lower() for t in LabelManager.TYPE_LABELS]]
+    if type_cols:
+        decoded_df['exercise_type'] = df[type_cols].idxmax(axis=1)
+        decoded_df.drop(columns=type_cols, inplace=True)
+    
+    # Remove workout day columns (e.g., chest_day, back_day, etc.)
+    day_cols = [col for col in df.columns if col.endswith('_day')]
+    if day_cols:
+        decoded_df.drop(columns=day_cols, inplace=True)
+    
+    return decoded_df
+
 def get_train_features(user_id: int): 
   print(DB_PATH)     
   with sqlite3.connect(DB_PATH) as conn:
@@ -108,29 +136,51 @@ def get_inference_features(exercise_id: int, workout_name: str):
 
       return df
    
-def get_top_N(pred_vector: np.array, workout_name : str, top_n: int):
+def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, top_n: int):
+    with sqlite3.connect(DB_PATH) as conn:
+        groups = workout_name.split()
+        conditions = " OR ".join(f"muscle_group = '{g}'" for g in groups)
+        df = pd.read_sql(f"SELECT * FROM exercises WHERE {conditions};", conn)
+    
+    df_encoded = encode_features(df, workout_name=workout_name)
 
-  with sqlite3.connect(DB_PATH) as conn:
-      groups = workout_name.split()
-      conditions = " OR ".join(f"muscle_group = '{g}'" for g in groups)
-      df = pd.read_sql(f"SELECT * FROM exercises WHERE {conditions};", conn)
-  
-  df_encoded = encode_features(df, workout_name=workout_name)
+    X = df_encoded[LabelManager.EXERCISE_LABELS].astype(float).values
+    pred_vector = np.array(pred_vector).reshape(1, -1)
 
-  X = df_encoded[LabelManager.EXERCISE_LABELS].astype(float).values
-  pred_vector = np.array(pred_vector).reshape(1, -1)
+    X_norm = X / np.linalg.norm(X, axis=1, keepdims=True)
+    pred_norm = pred_vector / np.linalg.norm(pred_vector)
+    similarity = (X_norm @ pred_norm.T).ravel()  # Shape: (n_exercises,)
 
-  X_norm = X / np.linalg.norm(X, axis=1, keepdims=True)
-  pred_norm = pred_vector / np.linalg.norm(pred_vector)
-  similarity = X_norm @ pred_norm.T
-
-  # Get top indices
-  top_idx = np.argsort(similarity.ravel())[::-1][:top_n]
-  return [(
-            int(df.iloc[i]["id"]),
-            df.iloc[i]["variant"],
-            df.iloc[i]["name"],
-          ) for i in top_idx]
+    # Get exercise frequencies - vectorized
+    with sqlite3.connect(DB_PATH) as conn: 
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT exercise_id, COUNT(*) as count FROM logs WHERE user_id = ? GROUP BY exercise_id
+        """, (user_id, ))
+        rows = cursor.fetchall()
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM logs WHERE user_id = ?
+        """, (user_id,))
+        total_logs = cursor.fetchone()[0]
+    
+    # Build frequency vector aligned with df_encoded
+    freq_vector = np.zeros(len(df_encoded))
+    if total_logs > 0:
+        freq_dict = {exercise_id: count / total_logs for exercise_id, count in rows}
+        exercise_ids = df_encoded['id'].values  
+        for i, ex_id in enumerate(exercise_ids):
+            freq_vector[i] = freq_dict.get(ex_id, 0)
+    
+    # Vectorized weighted score calculation
+    a = .5
+    weighted_scores = a * similarity + (1 - a) * freq_vector
+    
+    top_idx = np.argsort(weighted_scores)[::-1][:top_n]
+    
+    topN_results = df_encoded.iloc[top_idx]
+    decoded_results = decode_features(topN_results)
+    return decoded_results
 
 def load_model(path: Path):
   if not path.exists():

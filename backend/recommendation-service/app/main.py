@@ -46,13 +46,13 @@ def get_recommendation(exercise_id: int, workout_name: str, user_id: int):
 
   pred_vector = np.concatenate([muscle_probs, machine_probs, type_probs], axis=1)
 
-  top_recommendations = get_top_N(pred_vector, workout_name, 5)
+  top_recommendations = get_top_N(user_id, pred_vector, workout_name, 5)
   
   return {
     "top_muslce": muscle_label, 
     "top_machine": machine_label, 
     "top_type": type_label, 
-    "recommendations": top_recommendations
+    "recommendations": top_recommendations.to_dict(orient="records")
   }
 
 
