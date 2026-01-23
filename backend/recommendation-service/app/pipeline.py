@@ -1,11 +1,12 @@
 
 import argparse
 import pandas as pd
+from datetime import datetime
 import joblib
 from pathlib import Path
 from sklearn.linear_model import Ridge
 from app.helpers import get_train_features
-from app.label_manager import LabelManager
+from app.label_manager import *
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description="")
@@ -14,11 +15,11 @@ if __name__ == "__main__":
 
   df = get_train_features(args.user_id)
 
-  X = df[LabelManager.FEATURE_LABELS].values
+  X = df[FEATURE_LABELS].values
 
-  y_muscle = df[LabelManager.MUSCLE_GROUPS]
-  y_machine = df[LabelManager.MACHINE_LABELS]
-  y_type = df[LabelManager.TYPE_LABELS] 
+  y_muscle = df[MUSCLE_GROUPS]
+  y_machine = df[MACHINE_LABELS]
+  y_type = df[TYPE_LABELS] 
 
   ridge_muscle  = Ridge(alpha=1.0).fit(X, y_muscle)
   ridge_machine = Ridge(alpha=1.0).fit(X, y_machine)

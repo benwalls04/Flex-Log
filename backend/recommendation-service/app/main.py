@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 import numpy as np
 from app.helpers import test_db, load_model, get_inference_features, get_top_N
-from app.label_manager import LabelManager
+from app.label_manager import *
 
 app = FastAPI() 
 
@@ -33,16 +33,16 @@ async def get_recommendation(user_id : int, workout_id : int, workout_name : str
   muscle_model = load_model(muscle_path)
   type_model = load_model(type_path)
 
-  df = get_inference_features(exercise_id, workout_name)
-  X = df[LabelManager.FEATURE_LABELS].values
+  df = get_inference_features(exercise_id, workout_id, workout_name)
+  X = df[FEATURE_LABELS].values
 
   muscle_probs = muscle_model.predict(X)
   machine_probs = machine_model.predict(X)
   type_probs = type_model.predict(X)
   
-  muscle_label = LabelManager.MUSCLE_GROUPS[muscle_probs.argmax(axis=1)[0]]
-  machine_label = LabelManager.MACHINE_LABELS[machine_probs.argmax(axis=1)[0]]
-  type_label = LabelManager.TYPE_LABELS[type_probs.argmax(axis=1)[0]]
+  muscle_label = MUSCLE_GROUPS[muscle_probs.argmax(axis=1)[0]]
+  machine_label = MACHINE_LABELS[machine_probs.argmax(axis=1)[0]]
+  type_label = TYPE_LABELS[type_probs.argmax(axis=1)[0]]
 
   pred_vector = np.concatenate([muscle_probs, machine_probs, type_probs], axis=1)
 
