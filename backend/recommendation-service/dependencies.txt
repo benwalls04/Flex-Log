@@ -5,6 +5,6 @@ sqlalchemy
 scikit-learn
 numpy
 pandas
-argparse
 joblib
 redis
+boto3

@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+import tempfile
+import boto3
 
 if "DATABASE_PATH" in os.environ:
     DB_PATH = Path(os.environ["DATABASE_PATH"])
@@ -226,13 +228,41 @@ def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, workout_i
 
     return decoded_results
 
-def load_model(path: Path):
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"Model file does not exist: {path}")
-    return joblib.load(path)
-
 def get_all_users() -> list:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM users;")
         return [row[0] for row in cursor.fetchall()]
+    
+def load_model(path: Path):
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Model file does not exist: {path}")
+    return joblib.load(path)
+
+
+s3 = boto3.client("s3")
+BUCKET_NAME = "flexlog-models" 
+def dump_model_to_s3(model, bucket, key):
+    with tempfile.NamedTemporaryFile(suffix=".joblib") as tmp:
+        joblib.dump(model, tmp.name)
+        s3.upload_file(tmp.name, bucket, key)
+
+def load_model_from_s3(bucket, key):
+    with tempfile.NamedTemporaryFile(suffix=".joblib") as tmp:
+        s3.download_file(bucket, key, tmp.name)
+        return joblib.load(tmp.name)
+    
+def test_s3():
+    s3 = boto3.client("s3")
+    print([b['Name'] for b in s3.list_buckets()['Buckets']])
+
+    # Upload a test object
+    s3.put_object(Bucket="flexlog-models", Key="test.txt", Body=b"hello")
+
+    # Get the object
+    response = s3.get_object(Bucket="flexlog-models", Key="test.txt")
+
+    # Read the content
+    data = response['Body'].read()
+    print(data)  
+

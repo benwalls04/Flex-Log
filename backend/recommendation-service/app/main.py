@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+import subprocess
 from pathlib import Path
 import os
 import numpy as np
@@ -61,5 +62,25 @@ async def get_recommendation(user_id : int, workout_id : int, workout_name : str
     "recommendations": top_recommendations.to_dict(orient="records")
   }
 
+@app.post("/train_model")
+async def train(all_users: bool = True, user_id: int = None):
+    pipeline_path = Path(__file__).parent / "pipeline.py"
+    cmd = ["python3", str(pipeline_path)]
 
+    if all_users:
+        cmd.append("--all-users")
+    elif user_id is not None:
+        cmd.extend(["--user-id", str(user_id)])
+    else:
+        return {"error": "Specify either all_users=True or user_id"}
+
+    # Run the pipeline as a subprocess
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    # Return stdout/stderr for debugging
+    return {
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "returncode": result.returncode
+    }
 

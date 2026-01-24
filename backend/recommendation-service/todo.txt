@@ -1,3 +1,0 @@
-- add num_{group}_hit to the model, number of workouts hit in that muscle group prior 
-- add exclusion list of exercises already hit that day
-
