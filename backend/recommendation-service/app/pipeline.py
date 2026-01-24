@@ -1,19 +1,13 @@
 
 import argparse
-import pandas as pd
-from datetime import datetime
 import joblib
 from pathlib import Path
 from sklearn.linear_model import Ridge
-from app.helpers import get_train_features
+from app.helpers import get_train_features, get_all_users
 from app.label_manager import *
 
-if __name__ == "__main__":
-  parser = argparse.ArgumentParser(description="")
-  parser.add_argument("--user_id", type=int, required=True, help="user id to run the pipeline for")
-  args = parser.parse_args()
-
-  df = get_train_features(args.user_id)
+def train(user_id):
+  df = get_train_features(user_id)
 
   X = df[FEATURE_LABELS].values
 
@@ -29,7 +23,35 @@ if __name__ == "__main__":
 
   MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-  joblib.dump(ridge_muscle,  MODEL_DIR / f"user_{args.user_id}_muscle.joblib")
-  joblib.dump(ridge_machine, MODEL_DIR / f"user_{args.user_id}_machine.joblib")
-  joblib.dump(ridge_type,    MODEL_DIR / f"user_{args.user_id}_type.joblib")
+  joblib.dump(ridge_muscle,  MODEL_DIR / f"user_{user_id}_muscle.joblib")
+  joblib.dump(ridge_machine, MODEL_DIR / f"user_{user_id}_machine.joblib")
+  joblib.dump(ridge_type,    MODEL_DIR / f"user_{user_id}_type.joblib")
   
+
+if __name__ == "__main__":
+  parser = argparse.ArgumentParser()
+
+  group = parser.add_mutually_exclusive_group(required=True)
+
+  group.add_argument(
+      "--all-users",
+      action="store_true",
+      help="Run pipeline for all users"
+  )
+
+  group.add_argument(
+      "--user-id",
+      type=int,
+      help="Run pipeline for a single user"
+  )
+
+  args = parser.parse_args()
+
+
+  if args.all_users:
+    user_ids = get_all_users()
+    for u_id in user_ids: 
+      train(user_id=u_id)
+
+  else:  
+    train(user_id=args.user_id)

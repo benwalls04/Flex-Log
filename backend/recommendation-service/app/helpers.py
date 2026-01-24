@@ -168,8 +168,7 @@ def get_inference_features(exercise_id: int, workout_id : int, workout_name: str
    
 def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, workout_id : int, top_n: int):
 
-    #done_exercises = get_session_exercises(workout_id)
-    done_exercises = {}
+    done_exercises = get_session_exercises(workout_id)
 
     with sqlite3.connect(DB_PATH) as conn:
         groups = workout_name.split()
@@ -228,7 +227,12 @@ def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, workout_i
     return decoded_results
 
 def load_model(path: Path):
-  if not path.exists():
-      raise HTTPException(status_code=404, detail=f"Model file does not exist: {path}")
-  return joblib.load(path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Model file does not exist: {path}")
+    return joblib.load(path)
 
+def get_all_users() -> list:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM users;")
+        return [row[0] for row in cursor.fetchall()]
