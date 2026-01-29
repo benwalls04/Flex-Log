@@ -12,7 +12,7 @@ public class UserLogService {
     public UserLogService(UserLogRepository logRepository) {
         this.logRepository = logRepository;
     }
-    public Log getLog(Long id) {
+    public Log getLog(Integer id) {
         return logRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Log not found"));
     }
@@ -21,11 +21,27 @@ public class UserLogService {
         return logRepository.findAll();
     }
 
+    public List<Log> getLogsByUserId(Integer userId) {
+        return logRepository.findByUserId(userId);
+    }
+
     public Log createLog(Log log) {
         return logRepository.save(log);
     }
 
-    public void deleteLog(Long id) {
+    public void deleteLog(Integer id) {
         logRepository.deleteById(id);
+    }
+
+    public Log updateLog(Integer id, Log updatedLog) {
+        Log existingLog = logRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Log not found"));
+
+        existingLog.setReps(updatedLog.getReps());
+        existingLog.setWeight(updatedLog.getWeight());
+        existingLog.setExercise(updatedLog.getExercise());
+        existingLog.setFirst(updatedLog.getFirst());
+
+        return logRepository.save(existingLog);
     }
 }

@@ -8,7 +8,7 @@ public class Log {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private Integer id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
@@ -37,7 +37,7 @@ public class Log {
     public Log() {}
 
     // Full constructor with relationships
-    public Log(Long id, User user, String timestamp, Exercise exercise, Workout workout,
+    public Log(Integer id, User user, String timestamp, Exercise exercise, Workout workout,
                Double weight, Integer reps, Integer first) {
         this.id = id;
         this.user = user;
@@ -46,6 +46,54 @@ public class Log {
         this.workout = workout;
         this.weight = weight;
         this.reps = reps;
+        this.first = first;
+    }
+
+    public Integer getId() {
+        return id;
+    }
+
+    public User getUser() {
+        return user;
+    }
+
+    public Exercise getExercise() {
+        return exercise;
+    }
+
+    public void setExercise(Exercise exercise) {
+        this.exercise = exercise;
+    }
+
+    public Workout getWorkout() {
+        return workout;
+    }
+
+    public String getTimestamp() {
+        return timestamp;
+    }
+
+    public Double getWeight() {
+        return weight;
+    }
+
+    public void setWeight(Double weight) {
+        this.weight = weight;
+    }
+
+    public Integer getReps() {
+        return reps;
+    }
+
+    public void setReps(Integer reps) {
+        this.reps = reps;
+    }
+
+    public Integer getFirst() {
+        return first;
+    }
+
+    public void setFirst(Integer first) {
         this.first = first;
     }
 }
