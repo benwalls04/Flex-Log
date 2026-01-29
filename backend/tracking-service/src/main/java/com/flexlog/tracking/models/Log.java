@@ -10,14 +10,20 @@ public class Log {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
-    private Integer userId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
+    @ManyToOne
+    @JoinColumn(name="exercise_id", nullable = false)
+    private Exercise exercise;
+
+    @ManyToOne
+    @JoinColumn(name="workout_id")
+    private Workout workout;
 
     @Column(name = "timestamp", nullable = false)
     private String timestamp;
-
-    @Column(name = "exercise_id", nullable = false)
-    private Integer exerciseId;
 
     @Column(name = "weight")
     private Double weight;
@@ -25,89 +31,21 @@ public class Log {
     @Column(name = "reps")
     private Integer reps;
 
-    @Column(name = "workout_id")
-    private Integer workoutId;
-
     @Column(name = "first")
     private Integer first;
 
     public Log() {}
 
-    // Full constructor
-    public Log(Long id, Integer userId, String timestamp, Integer exerciseId,
-               Double weight, Integer reps, Integer workoutId, Integer first) {
+    // Full constructor with relationships
+    public Log(Long id, User user, String timestamp, Exercise exercise, Workout workout,
+               Double weight, Integer reps, Integer first) {
         this.id = id;
-        this.userId = userId;
+        this.user = user;
         this.timestamp = timestamp;
-        this.exerciseId = exerciseId;
+        this.exercise = exercise;
+        this.workout = workout;
         this.weight = weight;
         this.reps = reps;
-        this.workoutId = workoutId;
-        this.first = first;
-    }
-
-    // Getters and Setters
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public Integer getUserId() {
-        return userId;
-    }
-
-    public void setUserId(Integer userId) {
-        this.userId = userId;
-    }
-
-    public String getTimestamp() {
-        return timestamp;
-    }
-
-    public void setTimestamp(String timestamp) {
-        this.timestamp = timestamp;
-    }
-
-    public Integer getExerciseId() {
-        return exerciseId;
-    }
-
-    public void setExerciseId(Integer exerciseId) {
-        this.exerciseId = exerciseId;
-    }
-
-    public Double getWeight() {
-        return weight;
-    }
-
-    public void setWeight(Double weight) {
-        this.weight = weight;
-    }
-
-    public Integer getReps() {
-        return reps;
-    }
-
-    public void setReps(Integer reps) {
-        this.reps = reps;
-    }
-
-    public Integer getWorkoutId() {
-        return workoutId;
-    }
-
-    public void setWorkoutId(Integer workoutId) {
-        this.workoutId = workoutId;
-    }
-
-    public Integer getFirst() {
-        return first;
-    }
-
-    public void setFirst(Integer first) {
         this.first = first;
     }
 }

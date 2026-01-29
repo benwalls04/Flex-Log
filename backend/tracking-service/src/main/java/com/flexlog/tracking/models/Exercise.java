@@ -33,9 +33,6 @@ public class Exercise {
     @OneToMany(mappedBy = "exercise")
     private Set<Log> logs;
 
-    @OneToMany(mappedBy = "exercise")
-    private Set<Favorite> favorites;
-
     // Constructors
     public Exercise() {}
 

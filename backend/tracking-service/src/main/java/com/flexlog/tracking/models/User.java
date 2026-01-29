@@ -1,6 +1,5 @@
 // User.java
 package com.flexlog.tracking.models;
-
 import jakarta.persistence.*;
 import java.util.Set;
 
@@ -15,10 +14,10 @@ public class User {
     @Column(name = "username")
     private String username;
 
-    @OneToMany(mappedBy = "user")
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<Workout> workouts;
 
-    @OneToMany(mappedBy = "user")
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<Log> logs;
 
     // Constructors
