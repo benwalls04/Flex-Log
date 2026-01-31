@@ -6,6 +6,6 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 @Repository
-public interface UserLogRepository extends JpaRepository<Log, Integer> {
+public interface LogRepository extends JpaRepository<Log, Integer> {
     List<Log> findByUserId(Integer userId);
 }

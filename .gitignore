@@ -18,6 +18,8 @@ dist/
 build/
 *.wheel
 
+docker-compose.yml
+
 # Python dotenv files
 **/.env
 

@@ -33,3 +33,4 @@ build/
 .vscode/
 
 .env
+run-dev.ps1

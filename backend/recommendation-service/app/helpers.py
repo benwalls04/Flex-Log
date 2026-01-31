@@ -1,4 +1,5 @@
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from fastapi import HTTPException
 from pathlib import Path
 from app.label_manager import *
@@ -7,26 +8,33 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+from dotenv import load_dotenv
 import tempfile
 import boto3
 
-if "DATABASE_PATH" in os.environ:
-    DB_PATH = Path(os.environ["DATABASE_PATH"])
-else:
-    DB_PATH = (
-        Path(__file__).resolve()
-        .parents[3]   
-        / "data"
-        / "test_database.db"
-    )
+# PostgreSQL connection parameters
+
+load_dotenv()
+
+DB_CONFIG = {
+    "host": os.environ.get("DB_HOST", "db.kauffaiclsbufnwyiuau.supabase.co"),
+    "port": os.environ.get("DB_PORT", "5432"),
+    "database": os.environ.get("DB_NAME", "postgres"),
+    "user": os.environ.get("DB_USER", "postgres"),
+    "password": os.environ.get("DB_PASSWORD"),
+    "sslmode": "require"
+}
+
+def get_db_connection():
+    """Create and return a PostgreSQL connection"""
+    return psycopg2.connect(**DB_CONFIG)
 
 def test_db():
-  with sqlite3.connect(DB_PATH) as conn: 
-      conn.row_factory = sqlite3.Row
-      cursor = conn.cursor() 
-      cursor.execute("SELECT * FROM USERS")
-      rows = cursor.fetchall()
-      return [dict(row) for row in rows]
+    with get_db_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute("SELECT * FROM users")
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
   
 def encode_features(df, workout_name=None, column_mapping=None):
     for group in MUSCLE_GROUPS: 
@@ -82,107 +90,109 @@ def decode_features(df):
     return decoded_df
 
 def get_train_features(user_id: int): 
-  with sqlite3.connect(DB_PATH) as conn:
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT 
-            l.first, l.timestamp, 
-            w.name as workout_name,
-            e.muscle_group,
-            e.machine_type, 
-            e.exercise_type
-        FROM logs l
-        JOIN exercises e ON l.exercise_id = e.id
-        JOIN workouts w ON l.workout_id = w.id
-        WHERE l.user_id = ?
-        GROUP BY l.exercise_id, l.workout_id
-        ORDER BY l.timestamp ASC
-    """, (user_id,))
-    rows = cursor.fetchall()
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT 
+                    l.first, l.timestamp, 
+                    w.name as workout_name,
+                    e.muscle_group,
+                    e.machine_type, 
+                    e.exercise_type
+                FROM logs l
+                JOIN exercises e ON l.exercise_id = e.id
+                JOIN workouts w ON l.workout_id = w.id
+                WHERE l.user_id = %s
+                GROUP BY l.exercise_id, l.workout_id, l.first, l.timestamp, w.name, e.muscle_group, e.machine_type, e.exercise_type
+                ORDER BY l.timestamp ASC
+            """, (user_id,))
+            rows = cursor.fetchall()
 
-    column_names = [
-      "first", "timestamp", "workout_name", "muscle_group", "machine_type", "exercise_type"
-    ]
+            column_names = [
+                "first", "timestamp", "workout_name", "muscle_group", "machine_type", "exercise_type"
+            ]
 
-    df = pd.DataFrame(rows, columns=column_names)
+            df = pd.DataFrame(rows, columns=column_names)
 
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df["day"] = df['timestamp'].dt.day
-    df["workout_name"] = df["workout_name"].fillna("")
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df["day"] = df['timestamp'].dt.day
+            df["workout_name"] = df["workout_name"].fillna("")
 
-    group_counts = {key : 0 for key in MUSCLE_GROUPS}
-    for group in MUSCLE_GROUPS:
-        df[f"num_prev_{group}"] = 0
+            group_counts = {key : 0 for key in MUSCLE_GROUPS}
+            for group in MUSCLE_GROUPS:
+                df[f"num_prev_{group}"] = 0
 
-    df['position'] = 0
-    position = 0
-    for idx, row in df.iterrows(): 
-        if row["first"] == 1: 
-            for k in group_counts.keys():
-                group_counts[k] = 0
+            df['position'] = 0
             position = 0
+            for idx, row in df.iterrows(): 
+                if row["first"] == 1: 
+                    for k in group_counts.keys():
+                        group_counts[k] = 0
+                    position = 0
 
-        df.loc[idx, "position"] = position
-        for group, v in group_counts.items(): 
-            df.loc[idx, f"num_prev_{group}"] = v
-        
-        position += 1
-        group_counts[row["muscle_group"]] += 1
+                df.loc[idx, "position"] = position
+                for group, v in group_counts.items(): 
+                    df.loc[idx, f"num_prev_{group}"] = v
+                
+                position += 1
+                group_counts[row["muscle_group"]] += 1
 
-    df = encode_features(df)
+            df = encode_features(df)
 
-    for col in EXERCISE_LABELS:
-        df[f"target_{col}"] = df[col].copy()
-        df[col] = df[col].shift(1).fillna(0).astype(int)
-        df.loc[df["first"] == 1, col] = 0
-    
-    return df
+            for col in EXERCISE_LABELS:
+                df[f"target_{col}"] = df[col].copy()
+                df[col] = df[col].shift(1).fillna(0).astype(int)
+                df.loc[df["first"] == 1, col] = 0
+            
+            return df
   
 def get_inference_features(exercise_id: int, workout_id : int, workout_name: str):
-    with sqlite3.connect(DB_PATH) as conn: 
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT   
-            muscle_group, machine_type, exercise_type
-            FROM exercises 
-            WHERE id = ?
-        """, (exercise_id, ))
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT   
+                muscle_group, machine_type, exercise_type
+                FROM exercises 
+                WHERE id = %s
+            """, (exercise_id, ))
 
-        rows = cursor.fetchall()
-        df = pd.DataFrame(rows, columns=["muscle_group", "machine_type", "exercise_type"])
+            rows = cursor.fetchall()
+            df = pd.DataFrame(rows, columns=["muscle_group", "machine_type", "exercise_type"])
 
-        df = encode_features(df, workout_name=workout_name)
+            df = encode_features(df, workout_name=workout_name)
 
-        group_counts = get_muscle_group_counts(workout_id)
-        for group in MUSCLE_GROUPS:
-            if group in group_counts: 
-                df[f"num_prev_{group}"] = group_counts[group]
-            else: 
-                df[f"num_prev_{group}"] = 0 
+            group_counts = get_muscle_group_counts(workout_id)
+            for group in MUSCLE_GROUPS:
+                if group in group_counts: 
+                    df[f"num_prev_{group}"] = group_counts[group]
+                else: 
+                    df[f"num_prev_{group}"] = 0 
 
-        df["position"] = get_session_position(workout_id)
+            df["position"] = get_session_position(workout_id)
 
-        missing_cols = [col for col in FEATURE_LABELS if col not in df.columns]
-        if missing_cols:
-            raise ValueError(f"Missing features in inference dataframe: {missing_cols}")
+            missing_cols = [col for col in FEATURE_LABELS if col not in df.columns]
+            if missing_cols:
+                raise ValueError(f"Missing features in inference dataframe: {missing_cols}")
 
-        return df
+            return df
    
 def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, workout_id : int, top_n: int):
 
     done_exercises = get_session_exercises(workout_id)
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with get_db_connection() as conn:
         groups = workout_name.split()
-        conditions = " OR ".join(f"muscle_group = '{g}'" for g in groups)
-
+        conditions = " OR ".join(f"muscle_group = %s" for g in groups)
+        
         if done_exercises:
-            exclude_ids = ','.join(str(ex_id) for ex_id in done_exercises)
-            query = f"SELECT * FROM exercises WHERE ({conditions}) AND id NOT IN ({exclude_ids});"
+            exclude_placeholders = ','.join(['%s'] * len(done_exercises))
+            query = f"SELECT * FROM exercises WHERE ({conditions}) AND id NOT IN ({exclude_placeholders})"
+            params = groups + done_exercises
         else:
-            query = f"SELECT * FROM exercises WHERE {conditions};"
+            query = f"SELECT * FROM exercises WHERE ({conditions})"
+            params = groups
 
-        df = pd.read_sql(query, conn)
+        df = pd.read_sql(query, conn, params=params)
     
     df_encoded = encode_features(df, workout_name=workout_name)
 
@@ -194,17 +204,17 @@ def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, workout_i
     similarity = (X_norm @ pred_norm.T).ravel()  # Shape: (n_exercises,)
 
     # Get exercise frequencies - vectorized
-    with sqlite3.connect(DB_PATH) as conn: 
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT exercise_id, COUNT(*) as count FROM logs WHERE user_id = ? GROUP BY exercise_id
-        """, (user_id, ))
-        rows = cursor.fetchall()
-        
-        cursor.execute("""
-            SELECT COUNT(*) FROM logs WHERE user_id = ?
-        """, (user_id,))
-        total_logs = cursor.fetchone()[0]
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT exercise_id, COUNT(*) as count FROM logs WHERE user_id = %s GROUP BY exercise_id
+            """, (user_id, ))
+            rows = cursor.fetchall()
+            
+            cursor.execute("""
+                SELECT COUNT(*) FROM logs WHERE user_id = %s
+            """, (user_id,))
+            total_logs = cursor.fetchone()[0]
     
     # Build frequency vector aligned with df_encoded
     freq_vector = np.zeros(len(df_encoded))
@@ -229,10 +239,10 @@ def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, workout_i
     return decoded_results
 
 def get_all_users() -> list:
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM users;")
-        return [row[0] for row in cursor.fetchall()]
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id FROM users")
+            return [row[0] for row in cursor.fetchall()]
     
 def load_model(path: Path):
     if not path.exists():
@@ -241,16 +251,31 @@ def load_model(path: Path):
 
 
 s3 = boto3.client("s3")
-BUCKET_NAME = "flexlog-models" 
 def dump_model_to_s3(model, bucket, key):
-    with tempfile.NamedTemporaryFile(suffix=".joblib") as tmp:
-        joblib.dump(model, tmp.name)
-        s3.upload_file(tmp.name, bucket, key)
+    # Use delete=False to prevent auto-deletion on Windows
+    with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as tmp:
+        tmp_path = tmp.name
+    
+    try:
+        # Now we can write to the file after closing it
+        joblib.dump(model, tmp_path)
+        s3.upload_file(tmp_path, bucket, key)
+    finally:
+        # Clean up manually
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 def load_model_from_s3(bucket, key):
-    with tempfile.NamedTemporaryFile(suffix=".joblib") as tmp:
-        s3.download_file(bucket, key, tmp.name)
-        return joblib.load(tmp.name)
+    with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as tmp:
+        tmp_path = tmp.name
+    
+    try:
+        s3.download_file(bucket, key, tmp_path)
+        return joblib.load(tmp_path)
+    finally:
+        # Clean up manually
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
     
 def test_s3():
     s3 = boto3.client("s3")
@@ -264,5 +289,4 @@ def test_s3():
 
     # Read the content
     data = response['Body'].read()
-    print(data)  
-
+    print(data)

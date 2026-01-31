@@ -18,7 +18,10 @@ def train(user_id):
   ridge_muscle  = Ridge(alpha=1.0).fit(X, y_muscle)
   ridge_machine = Ridge(alpha=1.0).fit(X, y_machine)
   ridge_type    = Ridge(alpha=1.0).fit(X, y_type)
-  
+
+  dump_model_to_s3(ridge_muscle, "flexlog-models", f"user_{user_id}/muscle.joblib")
+  dump_model_to_s3(ridge_machine, "flexlog-models", f"user_{user_id}/machine.joblib")
+  dump_model_to_s3(ridge_type, "flexlog-models", f"user_{user_id}/type.joblib")
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
@@ -38,12 +41,10 @@ if __name__ == "__main__":
   )
 
   args = parser.parse_args()
-  test_s3
+  if args.all_users:
+    user_ids = get_all_users()
+    for u_id in user_ids: 
+      train(user_id=u_id)
 
-  # if args.all_users:
-  #   user_ids = get_all_users()
-  #   for u_id in user_ids: 
-  #     train(user_id=u_id)
-
-  # else:  
-  #   train(user_id=args.user_id)
+  else:  
+    train(user_id=args.user_id)

@@ -5,11 +5,11 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 @Service
-public class UserLogService {
-    private final UserLogRepository logRepository;
+public class LogService {
+    private final LogRepository logRepository;
 
     @Autowired
-    public UserLogService(UserLogRepository logRepository) {
+    public LogService(LogRepository logRepository) {
         this.logRepository = logRepository;
     }
     public Log getLog(Integer id) {
