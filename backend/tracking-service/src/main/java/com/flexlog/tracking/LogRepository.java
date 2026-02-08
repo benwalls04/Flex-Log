@@ -7,5 +7,5 @@ import java.util.List;
 
 @Repository
 public interface LogRepository extends JpaRepository<Log, Integer> {
-    List<Log> findByUserId(Integer userId);
+    List<Log> findByUser_Id(Integer userId);
 }

@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 import os
 import numpy as np
-from app.helpers import test_db, load_model, get_inference_features, get_top_N
+from app.helpers import test_db, load_model_from_s3, get_inference_features, get_top_N
 from app.label_manager import *
 
 app = FastAPI() 
@@ -21,18 +21,13 @@ def root():
 @app.get("/recommendation")
 async def get_recommendation(user_id : int, workout_id : int, workout_name : str, exercise_id : int):
 
-  if "MODEL_PATH" in os.environ:
-    MODEL_DIR = Path(os.environ["MODEL_PATH"])
-  else:
-    MODEL_DIR = Path(__file__).parents[2] / "models"
-
   machine_path = MODEL_DIR / f"user_{user_id}_machine.joblib"
   muscle_path = MODEL_DIR / f"user_{user_id}_muscle.joblib"
   type_path = MODEL_DIR / f"user_{user_id}_type.joblib"
 
-  machine_model = load_model(machine_path)
-  muscle_model = load_model(muscle_path)
-  type_model = load_model(type_path)
+  machine_model = load_model_from_s3("flexlog-models", f"user_{user_id}/machine.joblib")
+  muscle_model = load_model_from_s3("flexlog-models", f"user_{user_id}/muscle.joblib")
+  type_model = load_model_from_s3("flexlog-models", f"user_{user_id}/type.joblib")
 
   df = get_inference_features(exercise_id, workout_id, workout_name)
   X = df[FEATURE_LABELS].values
@@ -41,9 +36,12 @@ async def get_recommendation(user_id : int, workout_id : int, workout_name : str
   machine_probs = machine_model.predict(X)
   type_probs = type_model.predict(X)
   
-  muscle_label = MUSCLE_GROUPS[muscle_probs.argmax(axis=1)[0]]
-  machine_label = MACHINE_LABELS[machine_probs.argmax(axis=1)[0]]
-  type_label = TYPE_LABELS[type_probs.argmax(axis=1)[0]]
+  try:
+    muscle_label = MUSCLE_GROUPS[muscle_probs.argmax(axis=1)[0]]
+    machine_label = MACHINE_LABELS[machine_probs.argmax(axis=1)[0]]
+    type_label = TYPE_LABELS[type_probs.argmax(axis=1)[0]]
+  except Exception as e: 
+    return {"error": f"Models not found for user {user_id}. Train models first.", "detail": str(e)}
 
   pred_vector = np.concatenate([muscle_probs, machine_probs, type_probs], axis=1)
 
@@ -56,7 +54,7 @@ async def get_recommendation(user_id : int, workout_id : int, workout_name : str
   )
   
   return {
-    "top_muslce": muscle_label, 
+    "top_muscle": muscle_label, 
     "top_machine": machine_label, 
     "top_type": type_label, 
     "recommendations": top_recommendations.to_dict(orient="records")

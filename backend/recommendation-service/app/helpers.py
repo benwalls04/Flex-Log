@@ -12,10 +12,7 @@ from dotenv import load_dotenv
 import tempfile
 import boto3
 
-# PostgreSQL connection parameters
-
 load_dotenv()
-
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "db.kauffaiclsbufnwyiuau.supabase.co"),
     "port": os.environ.get("DB_PORT", "5432"),
@@ -157,6 +154,10 @@ def get_inference_features(exercise_id: int, workout_id : int, workout_name: str
             """, (exercise_id, ))
 
             rows = cursor.fetchall()
+
+            if not rows:
+                raise ValueError(f"Exercise {exercise_id} not found in database")
+
             df = pd.DataFrame(rows, columns=["muscle_group", "machine_type", "exercise_type"])
 
             df = encode_features(df, workout_name=workout_name)
@@ -187,7 +188,7 @@ def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, workout_i
         if done_exercises:
             exclude_placeholders = ','.join(['%s'] * len(done_exercises))
             query = f"SELECT * FROM exercises WHERE ({conditions}) AND id NOT IN ({exclude_placeholders})"
-            params = groups + done_exercises
+            params = groups + list(done_exercises)
         else:
             query = f"SELECT * FROM exercises WHERE ({conditions})"
             params = groups
@@ -199,9 +200,8 @@ def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, workout_i
     X = df_encoded[EXERCISE_LABELS].astype(float).values
     pred_vector = np.array(pred_vector).reshape(1, -1)
 
-    X_norm = X / np.linalg.norm(X, axis=1, keepdims=True)
-    pred_norm = pred_vector / np.linalg.norm(pred_vector)
-    similarity = (X_norm @ pred_norm.T).ravel()  # Shape: (n_exercises,)
+    X_norm = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-8)
+    pred_norm = pred_vector / (np.linalg.norm(pred_vector) + 1e-8)    similarity = (X_norm @ pred_norm.T).ravel() 
 
     # Get exercise frequencies - vectorized
     with get_db_connection() as conn:

@@ -1,16 +1,21 @@
 package com.flexlog.tracking;
+import com.flexlog.tracking.models.Exercise;
 import com.flexlog.tracking.models.Log;
+import com.flexlog.tracking.models.MuscleGroup;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.flexlog.tracking.RedisSessionService;
 import java.util.List;
 
 @Service
 public class LogService {
     private final LogRepository logRepository;
+    private final RedisSessionService redisClient;
 
     @Autowired
-    public LogService(LogRepository logRepository) {
+    public LogService(LogRepository logRepository, RedisSessionService redisClient) {
         this.logRepository = logRepository;
+        this.redisClient = redisClient;
     }
     public Log getLog(Integer id) {
         return logRepository.findById(id)
@@ -22,11 +27,19 @@ public class LogService {
     }
 
     public List<Log> getLogsByUserId(Integer userId) {
-        return logRepository.findByUserId(userId);
+        return logRepository.findByUser_Id(userId);
     }
 
     public Log createLog(Log log) {
-        return logRepository.save(log);
+        Log savedLog = logRepository.save(log);
+        Integer workoutId = savedLog.getWorkout().getId();
+        Exercise exercise = savedLog.getExercise();
+        Integer exerciseId = exercise.getId();
+         if (!redisClient.inSession(workoutId, exerciseId)) {
+             MuscleGroup muscleGroup = exercise.getMuscleGroup();
+             redisClient.addExerciseToSession(workoutId, exerciseId, muscleGroup);
+         }
+         return savedLog;
     }
 
     public void deleteLog(Integer id) {

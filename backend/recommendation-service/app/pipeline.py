@@ -9,6 +9,10 @@ from app.label_manager import *
 def train(user_id):
   df = get_train_features(user_id)
 
+  if df.empty:
+    print(f"No training data for user {user_id}, skipping...")
+    return
+
   X = df[FEATURE_LABELS].values
 
   y_muscle = df[MUSCLE_GROUPS]

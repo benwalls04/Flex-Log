@@ -2,6 +2,8 @@ package com.flexlog.tracking.models;
 
 import jakarta.persistence.*;
 
+import java.time.Instant;
+
 @Entity
 @Table(name = "logs")
 public class Log {
@@ -23,7 +25,7 @@ public class Log {
     private Workout workout;
 
     @Column(name = "timestamp", nullable = false)
-    private String timestamp;
+    private Instant timestamp;
 
     @Column(name = "weight")
     private Double weight;
@@ -37,7 +39,7 @@ public class Log {
     public Log() {}
 
     // Full constructor with relationships
-    public Log(Integer id, User user, String timestamp, Exercise exercise, Workout workout,
+    public Log(Integer id, User user, Instant timestamp, Exercise exercise, Workout workout,
                Double weight, Integer reps, Integer first) {
         this.id = id;
         this.user = user;
@@ -69,7 +71,7 @@ public class Log {
         return workout;
     }
 
-    public String getTimestamp() {
+    public Instant getTimestamp() {
         return timestamp;
     }
 

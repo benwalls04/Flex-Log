@@ -2,6 +2,8 @@
 package com.flexlog.tracking.models;
 
 import jakarta.persistence.*;
+
+import java.util.Date;
 import java.util.Set;
 
 @Entity
@@ -20,7 +22,7 @@ public class Workout {
     private String name;
 
     @Column(name = "date")
-    private String date;
+    private Date date;
 
     @OneToMany(mappedBy = "workout")
     private Set<Log> logs;
@@ -38,8 +40,8 @@ public class Workout {
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
 
-    public String getDate() { return date; }
-    public void setDate(String date) { this.date = date; }
+    public Date getDate() { return date; }
+    public void setDate(Date date) { this.date = date; }
 
     public Set<Log> getLogs() { return logs; }
     public void setLogs(Set<Log> logs) { this.logs = logs; }

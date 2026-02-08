@@ -1,40 +1,50 @@
 import redis
 import os
-import sqlite3
-from pathlib import Path
+import psycopg2
+from dotenv import load_dotenv
 
+load_dotenv()
 redis_client = redis.Redis(
-    host='redis-14082.c263.us-east-1-2.ec2.cloud.redislabs.com',
+    host=os.getenv("REDIS_ENDPOINT"),
     port=14082,
     decode_responses=True,
     username="default",
     password=os.getenv("REDIS_PASSWORD"),
 )
 
-if "DATABASE_PATH" in os.environ:
-    DB_PATH = Path(os.environ["DATABASE_PATH"])
-else:
-    DB_PATH = (
-        Path(__file__).resolve()
-        .parents[3]   
-        / "data"
-        / "test_database.db"
-    )
+DB_CONFIG = {
+    "host": os.environ.get("DB_HOST", "db.kauffaiclsbufnwyiuau.supabase.co"),
+    "port": os.environ.get("DB_PORT", "5432"),
+    "database": os.environ.get("DB_NAME", "postgres"),
+    "user": os.environ.get("DB_USER", "postgres"),
+    "password": os.environ.get("DB_PASSWORD"),
+    "sslmode": "require",
+}
+
+def get_db_connection():
+    """Create and return a PostgreSQL (Supabase) connection."""
+    return psycopg2.connect(**DB_CONFIG)
 
 def add_exercise_to_session(workout_id: int, exercise_id: int):
-    exercises_key  = f"session:{workout_id}:exercises"
-    redis_client.sadd(exercises_key , exercise_id)
-    redis_client.expire(exercises_key , 18000)    
+    exercises_key = f"session:{workout_id}:exercises"
+    redis_client.sadd(exercises_key, exercise_id)
+    redis_client.expire(exercises_key, 18000)
 
     count_key = f"session:{workout_id}:count"
     redis_client.incr(count_key)
     redis_client.expire(count_key, 18000)
 
-    with sqlite3.connect(DB_PATH) as conn: 
-        cursor = conn.cursor()
-        cursor.execute("SELECT muscle_group from exercises WHERE id = ?)", 
-        (exercise_id, ))
-        muscle_group = cursor.fetchone()[0]
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT muscle_group FROM exercises WHERE id = %s",
+                (exercise_id,),
+            )
+            row = cursor.fetchone()
+            muscle_group = row[0] if row else None
+
+    if muscle_group is None:
+        return
 
     redis_client.hincrby(
         f"session:{workout_id}:muscle_counts",
