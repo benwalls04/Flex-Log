@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 
 import java.util.Date;
 import java.util.Set;
+import java.util.UUID;
 
 @Entity
 @Table(name = "workouts")
@@ -14,9 +15,8 @@ public class Workout {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id")
-    private User user;
+    @Column(name = "user_id", nullable = false)
+    private UUID userId;
 
     @Column(name = "name")
     private String name;
@@ -34,8 +34,7 @@ public class Workout {
     public Integer getId() { return id; }
     public void setId(Integer id) { this.id = id; }
 
-    public User getUser() { return user; }
-    public void setUser(User user) { this.user = user; }
+    public UUID getUserId() { return userId; }
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }

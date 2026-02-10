@@ -2,7 +2,6 @@ package com.flexlog.tracking;
 
 import com.flexlog.tracking.models.Exercise;
 import com.flexlog.tracking.models.Log;
-import com.flexlog.tracking.models.User;
 import com.flexlog.tracking.models.Workout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -10,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api")
@@ -18,20 +18,12 @@ public class Controller {
     private final LogService logService;
     private final WorkoutService workoutService;
     private final ExerciseService exerciseService;
-    private final UserService userService;
 
     @Autowired
-    public Controller(LogService logService, WorkoutService workoutService, ExerciseService exerciseService, UserService userService) {
+    public Controller(LogService logService, WorkoutService workoutService, ExerciseService exerciseService) {
         this.logService = logService;
         this.workoutService = workoutService;
         this.exerciseService = exerciseService;
-        this.userService = userService;
-    }
-
-    @PostMapping("/users/")
-    public ResponseEntity<User> createUser(@RequestBody User newUser) {
-        User createdUser = userService.createUser(newUser);
-        return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
     }
 
     @PostMapping("/exercises/")
@@ -48,7 +40,7 @@ public class Controller {
 
     // Get all logs for a user
     @GetMapping("/logs/")
-    public List<Log> fetchUserLogs(@RequestParam Integer userId) {
+    public List<Log> fetchUserLogs(@RequestParam UUID userId) {
         return logService.getLogsByUserId(userId);
     }
 

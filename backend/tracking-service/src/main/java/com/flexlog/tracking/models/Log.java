@@ -3,6 +3,7 @@ package com.flexlog.tracking.models;
 import jakarta.persistence.*;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(name = "logs")
@@ -12,9 +13,8 @@ public class Log {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+    @Column(name = "user_id", nullable = false)
+    private UUID userId;
 
     @ManyToOne
     @JoinColumn(name="exercise_id", nullable = false)
@@ -39,10 +39,10 @@ public class Log {
     public Log() {}
 
     // Full constructor with relationships
-    public Log(Integer id, User user, Instant timestamp, Exercise exercise, Workout workout,
+    public Log(Integer id, UUID userId, Instant timestamp, Exercise exercise, Workout workout,
                Double weight, Integer reps, Integer first) {
         this.id = id;
-        this.user = user;
+        this.userId = userId;
         this.timestamp = timestamp;
         this.exercise = exercise;
         this.workout = workout;
@@ -55,9 +55,7 @@ public class Log {
         return id;
     }
 
-    public User getUser() {
-        return user;
-    }
+    public UUID getUserId() { return userId; }
 
     public Exercise getExercise() {
         return exercise;

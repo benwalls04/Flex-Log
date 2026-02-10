@@ -1,4 +1,5 @@
 package com.flexlog.tracking;
+
 import com.flexlog.tracking.models.Exercise;
 import com.flexlog.tracking.models.Log;
 import com.flexlog.tracking.models.MuscleGroup;
@@ -6,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.flexlog.tracking.RedisSessionService;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class LogService {
@@ -17,6 +19,7 @@ public class LogService {
         this.logRepository = logRepository;
         this.redisClient = redisClient;
     }
+
     public Log getLog(Integer id) {
         return logRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Log not found"));
@@ -26,8 +29,8 @@ public class LogService {
         return logRepository.findAll();
     }
 
-    public List<Log> getLogsByUserId(Integer userId) {
-        return logRepository.findByUser_Id(userId);
+    public List<Log> getLogsByUserId(UUID userId) {
+        return logRepository.findByUserId(userId);
     }
 
     public Log createLog(Log log) {
@@ -35,11 +38,11 @@ public class LogService {
         Integer workoutId = savedLog.getWorkout().getId();
         Exercise exercise = savedLog.getExercise();
         Integer exerciseId = exercise.getId();
-         if (!redisClient.inSession(workoutId, exerciseId)) {
-             MuscleGroup muscleGroup = exercise.getMuscleGroup();
-             redisClient.addExerciseToSession(workoutId, exerciseId, muscleGroup);
-         }
-         return savedLog;
+        if (!redisClient.inSession(workoutId, exerciseId)) {
+            MuscleGroup muscleGroup = exercise.getMuscleGroup();
+            redisClient.addExerciseToSession(workoutId, exerciseId, muscleGroup);
+        }
+        return savedLog;
     }
 
     public void deleteLog(Integer id) {
