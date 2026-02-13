@@ -28,20 +28,47 @@ public class Workout {
     private Set<Log> logs;
 
     // Constructors
-    public Workout() {}
+    public Workout() {
+    }
 
     // Getters and Setters
-    public Integer getId() { return id; }
-    public void setId(Integer id) { this.id = id; }
+    public Integer getId() {
+        return id;
+    }
 
-    public UUID getUserId() { return userId; }
+    public void setId(Integer id) {
+        this.id = id;
+    }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public UUID getUserId() {
+        return userId;
+    }
 
-    public Date getDate() { return date; }
-    public void setDate(Date date) { this.date = date; }
+    public void setUserId(UUID userId) {
+        this.userId = userId;
+    }
 
-    public Set<Log> getLogs() { return logs; }
-    public void setLogs(Set<Log> logs) { this.logs = logs; }
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public Date getDate() {
+        return date;
+    }
+
+    public void setDate(Date date) {
+        this.date = date;
+    }
+
+    public Set<Log> getLogs() {
+        return logs;
+    }
+
+    public void setLogs(Set<Log> logs) {
+        this.logs = logs;
+    }
 }

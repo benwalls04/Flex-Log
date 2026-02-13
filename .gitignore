@@ -96,3 +96,8 @@ Desktop.ini
 *.iws
 *.iml
 *.ipr
+
+# ------------------------------
+# Test Files with Credentials
+# ------------------------------
+frontend/test-auth.js

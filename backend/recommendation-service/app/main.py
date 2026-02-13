@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 import subprocess
 from pathlib import Path
@@ -6,6 +6,7 @@ import os
 import numpy as np
 from app.helpers import test_db, load_model_from_s3, get_inference_features, get_top_N
 from app.label_manager import *
+from app.auth import get_current_user
 
 app = FastAPI() 
 
@@ -19,12 +20,19 @@ def root():
   return users
 
 @app.get("/recommendation")
-async def get_recommendation(user_id : int, workout_id : int, workout_name : str, exercise_id : int):
+async def get_recommendation(
+  workout_id: int,
+  workout_name: str,
+  exercise_id: int,
+  user_id: str = Depends(get_current_user)
+):
+  """
+  Get exercise recommendations for the authenticated user.
+  User ID is automatically extracted from the JWT token.
+  """
 
-  machine_path = MODEL_DIR / f"user_{user_id}_machine.joblib"
-  muscle_path = MODEL_DIR / f"user_{user_id}_muscle.joblib"
-  type_path = MODEL_DIR / f"user_{user_id}_type.joblib"
-
+  return {"test" : "success"}
+  # Load user-specific models from S3
   machine_model = load_model_from_s3("flexlog-models", f"user_{user_id}/machine.joblib")
   muscle_model = load_model_from_s3("flexlog-models", f"user_{user_id}/muscle.joblib")
   type_model = load_model_from_s3("flexlog-models", f"user_{user_id}/type.joblib")

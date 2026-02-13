@@ -86,7 +86,7 @@ def decode_features(df):
     
     return decoded_df
 
-def get_train_features(user_id: int): 
+def get_train_features(user_id): 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
@@ -177,7 +177,7 @@ def get_inference_features(exercise_id: int, workout_id : int, workout_name: str
 
             return df
    
-def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, workout_id : int, top_n: int):
+def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : int, top_n: int):
 
     done_exercises = get_session_exercises(workout_id)
 
@@ -201,7 +201,8 @@ def get_top_N(user_id: int, pred_vector: np.array, workout_name : str, workout_i
     pred_vector = np.array(pred_vector).reshape(1, -1)
 
     X_norm = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-8)
-    pred_norm = pred_vector / (np.linalg.norm(pred_vector) + 1e-8)    similarity = (X_norm @ pred_norm.T).ravel() 
+    pred_norm = pred_vector / (np.linalg.norm(pred_vector) + 1e-8) 
+    similarity = (X_norm @ pred_norm.T).ravel() 
 
     # Get exercise frequencies - vectorized
     with get_db_connection() as conn:

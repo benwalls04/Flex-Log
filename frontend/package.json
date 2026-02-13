@@ -1,0 +1,13 @@
+{
+  "name": "flexlog-auth-test",
+  "version": "1.0.0",
+  "description": "Test script for FlexLog authentication",
+  "main": "test-auth.js",
+  "type": "module",
+  "scripts": {
+    "test": "node test-auth.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0"
+  }
+}

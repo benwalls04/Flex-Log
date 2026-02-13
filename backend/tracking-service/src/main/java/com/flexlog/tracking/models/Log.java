@@ -57,6 +57,8 @@ public class Log {
 
     public UUID getUserId() { return userId; }
 
+    public void setUserId(UUID userId) { this.userId = userId; }
+
     public Exercise getExercise() {
         return exercise;
     }

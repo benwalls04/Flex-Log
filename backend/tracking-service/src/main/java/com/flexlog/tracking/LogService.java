@@ -5,7 +5,6 @@ import com.flexlog.tracking.models.Log;
 import com.flexlog.tracking.models.MuscleGroup;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import com.flexlog.tracking.RedisSessionService;
 import java.util.List;
 import java.util.UUID;
 
