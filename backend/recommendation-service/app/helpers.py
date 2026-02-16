@@ -14,7 +14,7 @@ import boto3
 
 load_dotenv()
 DB_CONFIG = {
-    "host": os.environ.get("DB_HOST", "db.kauffaiclsbufnwyiuau.supabase.co"),
+    "host": os.environ.get("DB_HOST"),
     "port": os.environ.get("DB_PORT", "5432"),
     "database": os.environ.get("DB_NAME", "postgres"),
     "user": os.environ.get("DB_USER", "postgres"),

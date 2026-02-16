@@ -98,6 +98,6 @@ Desktop.ini
 *.ipr
 
 # ------------------------------
-# Test Files with Credentials
+# Test Environment Files
 # ------------------------------
-frontend/test-auth.js
+frontend/.env.test

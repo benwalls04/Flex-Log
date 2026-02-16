@@ -1,0 +1,42 @@
+from aws_cdk import (
+    Stack,
+    Duration,
+    aws_lambda as lambda_,
+    aws_iam as iam,
+    aws_s3 as s3,
+    aws_secretsmanager as secretsmanager
+)
+from constructs import Construct
+import os
+
+class TrainingServiceStack(Stack):
+    def __init__(self, scope: Construct, id: str, **kwargs):
+        super().__init__(scope, id, **kwargs)
+        
+        # Reference existing S3 bucket for models
+        models_bucket = s3.Bucket.from_bucket_name(
+            self, "ModelsBucket",
+            "flexlog-models"
+        )
+        
+        # Create Lambda function from Docker image
+        training_function = lambda_.DockerImageFunction(
+            self, "TrainingFunction",
+            code=lambda_.DockerImageCode.from_image_asset(
+                os.path.join(os.path.dirname(__file__), "..", "image")
+            ),
+            memory_size=3008, 
+            timeout=Duration.minutes(15), 
+            environment={
+                "SECRET_NAME": "dev/supabase"
+            }
+        )
+        
+        # Grant Secrets Manager access to Lambda
+        secret = secretsmanager.Secret.from_secret_complete_arn(
+            self, "SupabaseSecret",
+            "arn:aws:secretsmanager:us-east-1:471112794843:secret:dev/supabase-S2mbfc"
+        )
+        secret.grant_read(training_function)
+        models_bucket.grant_read_write(training_function)
+        

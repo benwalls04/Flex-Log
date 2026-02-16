@@ -1,0 +1,6 @@
+boto3
+joblib
+scikit-learn==1.5.2
+numpy==1.26.4
+psycopg2-binary
+pandas
