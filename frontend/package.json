@@ -6,10 +6,12 @@
   "type": "module",
   "scripts": {
     "test": "node test-auth.js",
-    "test:session": "node test-session.js"
+    "test:session": "node test-session.js",
+    "check:redis": "node check-redis-session.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
-    "dotenv": "^16.0.3"
+    "dotenv": "^16.0.3",
+    "redis": "^4.6.0"
   }
 }

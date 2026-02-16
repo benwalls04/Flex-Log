@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createRedisClient } from 'redis';
 import dotenv from 'dotenv';
 
 // Load test environment variables
@@ -15,6 +16,11 @@ const RECOMMENDATION_API_URL = process.env.RECOMMENDATION_API_URL || 'http://loc
 // Test user credentials
 const EMAIL = process.env.TEST_EMAIL;
 const PASSWORD = process.env.TEST_PASSWORD;
+
+// Redis configuration
+const REDIS_HOST = process.env.REDIS_HOST;
+const REDIS_PORT = parseInt(process.env.REDIS_PORT);
+const REDIS_PASSWORD = process.env.REDIS_PASSWORD;
 
 // Exercise names to test (variant + name format)
 const TEST_EXERCISE_NAMES = [
@@ -213,6 +219,71 @@ async function getRecommendation(token, workoutId, workoutName, lastExerciseId) 
 }
 
 // ==========================================
+// REDIS SESSION CHECK
+// ==========================================
+async function checkRedisSession(workoutId) {
+    log('Connecting to Redis to check session state...', 'info');
+
+    const redisClient = createRedisClient({
+        socket: {
+            host: REDIS_HOST,
+            port: REDIS_PORT,
+        },
+        password: REDIS_PASSWORD,
+        username: 'default',
+    });
+
+    try {
+        await redisClient.connect();
+        log('Connected to Redis!', 'success');
+
+        // Define Redis keys
+        const exercisesKey = `session:${workoutId}:exercises`;
+        const countKey = `session:${workoutId}:count`;
+        const muscleCountsKey = `session:${workoutId}:muscle_counts`;
+
+        // Get all data
+        const exercises = await redisClient.sMembers(exercisesKey);
+        const count = await redisClient.get(countKey);
+        const muscleCounts = await redisClient.hGetAll(muscleCountsKey);
+
+        // Display results
+        console.log('\n' + colors.cyan + '📊 Redis Cache State:' + colors.reset);
+        console.log(colors.cyan + `  Key: ${exercisesKey}` + colors.reset);
+        console.log(`    Type: SET`);
+        console.log(`    Value: [${exercises.join(', ')}]`);
+        console.log(`    Exercise Count: ${exercises.length}`);
+
+        console.log(colors.cyan + `\n  Key: ${countKey}` + colors.reset);
+        console.log(`    Type: STRING`);
+        console.log(`    Value: ${count || '(not set)'}`);
+
+        console.log(colors.cyan + `\n  Key: ${muscleCountsKey}` + colors.reset);
+        console.log(`    Type: HASH`);
+        if (Object.keys(muscleCounts).length > 0) {
+            for (const [muscle, muscleCount] of Object.entries(muscleCounts)) {
+                console.log(`    ${muscle}: ${muscleCount}`);
+            }
+        } else {
+            console.log(`    (empty hash)`);
+        }
+
+        await redisClient.disconnect();
+        return {
+            exercises,
+            count: parseInt(count) || 0,
+            muscleCounts
+        };
+    } catch (error) {
+        log(`Redis check failed: ${error.message}`, 'error');
+        if (redisClient.isOpen) {
+            await redisClient.disconnect();
+        }
+        return null;
+    }
+}
+
+// ==========================================
 // TEST HELPERS
 // ==========================================
 function sleep(ms) {
@@ -346,7 +417,7 @@ async function runSessionTest() {
                 log(`  Recommended: ${recommendation.top_muscle} / ${recommendation.top_machine} / ${recommendation.top_type}`, 'recommendation');
                 
                 if (recommendation.recommendations && recommendation.recommendations.length > 0) {
-                    log(`  Top recommendation: ${recommendation.recommendations[0].name || 'Exercise ' + recommendation.recommendations[0].id}`, 'recommendation');
+                    log(`  Top recommendation: ${(recommendation.recommendations[0].variant? recommendation.recommendations[0].variant : "")  + " " + recommendation.recommendations[0].name || 'Exercise ' + recommendation.recommendations[0].id}`, 'recommendation');
                 }
             } catch (error) {
                 log(`  ⚠️  Recommendation failed: ${error.message}`, 'error');
@@ -381,18 +452,40 @@ async function runSessionTest() {
         // ==========================================
         section('STEP 6: Redis Session State Check');
         
-        log('⚠️  MANUAL CHECK NEEDED:', 'info');
-        log('You need to add an endpoint to check Redis session state.', 'info');
-        console.log('\n' + colors.yellow + 'Expected Redis Keys:' + colors.reset);
-        console.log(`  session:${workoutId}:exercises     → Set of exercise IDs: {${TEST_EXERCISES.map(e => e.id).join(', ')}}`);
-        console.log(`  session:${workoutId}:count         → Total count: ${TEST_EXERCISES.length}`);
-        console.log(`  session:${workoutId}:muscle_counts → Hash: {chest: 1, back: 1, biceps: 1}`);
-        
-        console.log('\n' + colors.yellow + 'To verify manually, run:' + colors.reset);
-        console.log(`  redis-cli -h redis-17726.c262.us-east-1-3.ec2.cloud.redislabs.com -p 17726 -a YOUR_PASSWORD`);
-        console.log(`  SMEMBERS session:${workoutId}:exercises`);
-        console.log(`  GET session:${workoutId}:count`);
-        console.log(`  HGETALL session:${workoutId}:muscle_counts`);
+        if (!REDIS_HOST || !REDIS_PORT || !REDIS_PASSWORD) {
+            log('⚠️  Redis configuration not found in .env.test', 'info');
+            log('Add REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD to check cache state', 'info');
+            console.log('\n' + colors.yellow + 'Expected Redis Keys:' + colors.reset);
+            console.log(`  session:${workoutId}:exercises     → Set of exercise IDs: {${TEST_EXERCISES.map(e => e.id).join(', ')}}`);
+            console.log(`  session:${workoutId}:count         → Total count: ${TEST_EXERCISES.length}`);
+            console.log(`  session:${workoutId}:muscle_counts → Hash with muscle group counts`);
+        } else {
+            const redisData = await checkRedisSession(workoutId);
+            
+            if (redisData) {
+                log('✅ Successfully retrieved Redis session state!', 'success');
+                
+                // Verify expected vs actual
+                console.log('\n' + colors.yellow + 'Verification:' + colors.reset);
+                const expectedExercises = TEST_EXERCISES.length;
+                const actualExercises = redisData.exercises.length;
+                
+                if (actualExercises === expectedExercises) {
+                    log(`✓ Exercise count matches: ${actualExercises}/${expectedExercises}`, 'success');
+                } else {
+                    log(`✗ Exercise count mismatch: ${actualExercises}/${expectedExercises}`, 'error');
+                }
+                
+                if (redisData.count === expectedExercises) {
+                    log(`✓ Count key matches: ${redisData.count}`, 'success');
+                } else {
+                    log(`✗ Count key mismatch: ${redisData.count} (expected ${expectedExercises})`, 'error');
+                }
+                
+                const muscleGroupCount = Object.keys(redisData.muscleCounts).length;
+                log(`✓ Muscle groups tracked: ${muscleGroupCount}`, 'success');
+            }
+        }
 
         // ==========================================
         // SUCCESS
