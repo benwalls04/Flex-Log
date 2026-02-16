@@ -1,6 +1,7 @@
 // Exercise.java
 package com.flexlog.tracking.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.util.Set;
 
@@ -31,31 +32,67 @@ public class Exercise {
     private ExerciseType exerciseType;
 
     @OneToMany(mappedBy = "exercise")
+    @JsonIgnore
     private Set<Log> logs;
 
     // Constructors
-    public Exercise() {}
+    public Exercise() {
+    }
 
     // Getters and Setters
-    public Integer getId() { return id; }
-    public void setId(Integer id) { this.id = id; }
+    public Integer getId() {
+        return id;
+    }
 
-    public String getVariant() { return variant; }
-    public void setVariant(String variant) { this.variant = variant; }
+    public void setId(Integer id) {
+        this.id = id;
+    }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public String getVariant() {
+        return variant;
+    }
 
-    public MuscleGroup getMuscleGroup() { return muscleGroup; }
-    public void setMuscleGroup(MuscleGroup muscleGroup) { this.muscleGroup = muscleGroup; }
+    public void setVariant(String variant) {
+        this.variant = variant;
+    }
 
-    public MachineType getMachineType() { return machineType; }
-    public void setMachineType(MachineType machineType) { this.machineType = machineType; }
+    public String getName() {
+        return name;
+    }
 
-    public ExerciseType getExerciseType() { return exerciseType; }
-    public void setExerciseType(ExerciseType exerciseType) { this.exerciseType = exerciseType; }
+    public void setName(String name) {
+        this.name = name;
+    }
 
-    public Set<Log> getLogs() { return logs; }
-    public void setLogs(Set<Log> logs) { this.logs = logs; }
+    public MuscleGroup getMuscleGroup() {
+        return muscleGroup;
+    }
+
+    public void setMuscleGroup(MuscleGroup muscleGroup) {
+        this.muscleGroup = muscleGroup;
+    }
+
+    public MachineType getMachineType() {
+        return machineType;
+    }
+
+    public void setMachineType(MachineType machineType) {
+        this.machineType = machineType;
+    }
+
+    public ExerciseType getExerciseType() {
+        return exerciseType;
+    }
+
+    public void setExerciseType(ExerciseType exerciseType) {
+        this.exerciseType = exerciseType;
+    }
+
+    public Set<Log> getLogs() {
+        return logs;
+    }
+
+    public void setLogs(Set<Log> logs) {
+        this.logs = logs;
+    }
 }
-

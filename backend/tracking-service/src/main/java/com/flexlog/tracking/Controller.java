@@ -28,6 +28,11 @@ public class Controller {
         this.exerciseService = exerciseService;
     }
 
+    @GetMapping("/exercises/")
+    public List<Exercise> getAllExercises() {
+        return exerciseService.getAllExercises();
+    }
+
     @PostMapping("/exercises/")
     public ResponseEntity<Exercise> createExercise(@RequestBody Exercise newExercise) {
         Exercise createdExercise = exerciseService.createExercise(newExercise);

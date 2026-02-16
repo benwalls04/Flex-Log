@@ -37,11 +37,14 @@ public class LogService {
         Integer workoutId = savedLog.getWorkout().getId();
         Exercise exercise = savedLog.getExercise();
         Integer exerciseId = exercise.getId();
-        if (!redisClient.inSession(workoutId, exerciseId)) {
-            MuscleGroup muscleGroup = exercise.getMuscleGroup();
-            redisClient.addExerciseToSession(workoutId, exerciseId, muscleGroup);
-        }
+        /*
+         * if (!redisClient.inSession(workoutId, exerciseId)) {
+         * MuscleGroup muscleGroup = exercise.getMuscleGroup();
+         * redisClient.addExerciseToSession(workoutId, exerciseId, muscleGroup);
+         * }
+         */
         return savedLog;
+
     }
 
     public void deleteLog(Integer id) {

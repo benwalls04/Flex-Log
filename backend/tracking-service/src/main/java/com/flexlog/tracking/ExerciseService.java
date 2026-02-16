@@ -4,6 +4,8 @@ import com.flexlog.tracking.models.Exercise;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 public class ExerciseService {
 
@@ -16,5 +18,9 @@ public class ExerciseService {
 
     public Exercise createExercise(Exercise exercise) {
         return repository.save(exercise);
+    }
+
+    public List<Exercise> getAllExercises() {
+        return repository.findAll();
     }
 }
