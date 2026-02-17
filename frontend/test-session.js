@@ -1,294 +1,32 @@
-import { createClient } from '@supabase/supabase-js';
-import { createClient as createRedisClient } from 'redis';
-import dotenv from 'dotenv';
+/**
+ * FlexLog Session & Recommendation Test
+ * Tests complete workout flow with Redis session tracking
+ */
 
-// Load test environment variables
-dotenv.config({ path: '.env.test' });
-
-// ==========================================
-// CONFIGURATION
-// ==========================================
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://kauffaiclsbufnwyiuau.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-const TRACKING_API_URL = process.env.TRACKING_API_URL || 'http://localhost:8080/api';
-const RECOMMENDATION_API_URL = process.env.RECOMMENDATION_API_URL || 'http://localhost:8000';
-
-// Test user credentials
-const EMAIL = process.env.TEST_EMAIL;
-const PASSWORD = process.env.TEST_PASSWORD;
-
-// Redis configuration
-const REDIS_HOST = process.env.REDIS_HOST;
-const REDIS_PORT = parseInt(process.env.REDIS_PORT);
-const REDIS_PASSWORD = process.env.REDIS_PASSWORD;
+import {
+    config,
+    validateConfig,
+    signInUser,
+    getAllExercises,
+    buildExerciseLookup,
+    resolveExercises,
+    createWorkout,
+    logExerciseSets,
+    getRecommendation,
+    checkRedisSession,
+    verifyRedisSession,
+    displayRecommendation,
+    log,
+    section,
+    colors
+} from './test-utils.js';
 
 // Exercise names to test (variant + name format)
 const TEST_EXERCISE_NAMES = [
-    'barbell bench press',    
-    'machine overhead press',            
-    'pec-dec fly'          
+    'barbell bench press',    // chest exercise
+    'machine overhead press', // shoulders exercise
+    'pec-dec fly'             // chest exercise
 ];
-
-// ==========================================
-// LOGGING UTILITIES
-// ==========================================
-const colors = {
-    reset: '\x1b[0m',
-    green: '\x1b[32m',
-    red: '\x1b[31m',
-    blue: '\x1b[34m',
-    yellow: '\x1b[33m',
-    cyan: '\x1b[36m',
-    magenta: '\x1b[35m',
-};
-
-function log(message, type = 'info') {
-    const timestamp = new Date().toLocaleTimeString();
-    let color = colors.blue;
-    let prefix = 'ℹ️';
-
-    switch(type) {
-        case 'success':
-            color = colors.green;
-            prefix = '✅';
-            break;
-        case 'error':
-            color = colors.red;
-            prefix = '❌';
-            break;
-        case 'info':
-            color = colors.blue;
-            prefix = '📝';
-            break;
-        case 'workout':
-            color = colors.magenta;
-            prefix = '💪';
-            break;
-        case 'recommendation':
-            color = colors.cyan;
-            prefix = '🎯';
-            break;
-    }
-
-    console.log(`${color}[${timestamp}] ${prefix} ${message}${colors.reset}`);
-}
-
-function section(title) {
-    console.log('\n' + colors.yellow + '='.repeat(60) + colors.reset);
-    console.log(colors.yellow + `  ${title}` + colors.reset);
-    console.log(colors.yellow + '='.repeat(60) + colors.reset + '\n');
-}
-
-// ==========================================
-// SUPABASE AUTH
-// ==========================================
-async function signInUser(supabase) {
-    log(`Signing in with email: ${EMAIL}`, 'info');
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-        email: EMAIL,
-        password: PASSWORD,
-    });
-
-    if (error) {
-        throw new Error(`Supabase sign-in failed: ${error.message}`);
-    }
-
-    if (!data.user || !data.session?.access_token) {
-        throw new Error('No session/token returned from sign-in');
-    }
-
-    log(`Signed in! User ID: ${data.user.id}`, 'success');
-    return {
-        user: data.user,
-        token: data.session.access_token
-    };
-}
-
-// ==========================================
-// TRACKING SERVICE API (Spring Boot)
-// ==========================================
-async function getAllExercises(token) {
-    const response = await fetch(`${TRACKING_API_URL}/exercises/`, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${token}`
-        }
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Get exercises failed: ${response.status} - ${errorText}`);
-    }
-
-    return await response.json();
-}
-
-function buildExerciseLookup(exercises) {
-    const lookup = new Map();
-    
-    for (const exercise of exercises) {
-        const variant = exercise.variant || '';
-        const name = exercise.name || '';
-        const key = `${variant} ${name}`.toLowerCase().trim();
-        
-        lookup.set(key, {
-            id: exercise.id,
-            name: exercise.name,
-            variant: exercise.variant,
-            muscle: exercise.muscleGroup?.toLowerCase() || 'unknown'
-        });
-    }
-    
-    return lookup;
-}
-
-async function createWorkout(token, workoutName) {
-    const workoutData = {
-        name: workoutName,
-        date: new Date().toISOString(),
-    };
-
-    const response = await fetch(`${TRACKING_API_URL}/workouts/`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(workoutData)
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Create workout failed: ${response.status} - ${errorText}`);
-    }
-
-    return await response.json();
-}
-
-async function createLog(token, workoutId, exerciseId, weight, reps, isFirst) {
-    const logData = {
-        workout: { id: workoutId },
-        exercise: { id: exerciseId },
-        weight: weight,
-        reps: reps,
-        first: isFirst ? 1 : 0,
-        timestamp: new Date().toISOString()
-    };
-
-    const response = await fetch(`${TRACKING_API_URL}/logs/`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(logData)
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Create log failed: ${response.status} - ${errorText}`);
-    }
-
-    return await response.json();
-}
-
-// ==========================================
-// RECOMMENDATION SERVICE API (FastAPI)
-// ==========================================
-async function getRecommendation(token, workoutId, workoutName, lastExerciseId) {
-    const params = new URLSearchParams({
-        workout_id: workoutId,
-        workout_name: workoutName,
-        exercise_id: lastExerciseId
-    });
-
-    const response = await fetch(`${RECOMMENDATION_API_URL}/recommendation?${params}`, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${token}`
-        }
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Get recommendation failed: ${response.status} - ${errorText}`);
-    }
-
-    return await response.json();
-}
-
-// ==========================================
-// REDIS SESSION CHECK
-// ==========================================
-async function checkRedisSession(workoutId) {
-    log('Connecting to Redis to check session state...', 'info');
-
-    const redisClient = createRedisClient({
-        socket: {
-            host: REDIS_HOST,
-            port: REDIS_PORT,
-        },
-        password: REDIS_PASSWORD,
-        username: 'default',
-    });
-
-    try {
-        await redisClient.connect();
-        log('Connected to Redis!', 'success');
-
-        // Define Redis keys
-        const exercisesKey = `session:${workoutId}:exercises`;
-        const countKey = `session:${workoutId}:count`;
-        const muscleCountsKey = `session:${workoutId}:muscle_counts`;
-
-        // Get all data
-        const exercises = await redisClient.sMembers(exercisesKey);
-        const count = await redisClient.get(countKey);
-        const muscleCounts = await redisClient.hGetAll(muscleCountsKey);
-
-        // Display results
-        console.log('\n' + colors.cyan + '📊 Redis Cache State:' + colors.reset);
-        console.log(colors.cyan + `  Key: ${exercisesKey}` + colors.reset);
-        console.log(`    Type: SET`);
-        console.log(`    Value: [${exercises.join(', ')}]`);
-        console.log(`    Exercise Count: ${exercises.length}`);
-
-        console.log(colors.cyan + `\n  Key: ${countKey}` + colors.reset);
-        console.log(`    Type: STRING`);
-        console.log(`    Value: ${count || '(not set)'}`);
-
-        console.log(colors.cyan + `\n  Key: ${muscleCountsKey}` + colors.reset);
-        console.log(`    Type: HASH`);
-        if (Object.keys(muscleCounts).length > 0) {
-            for (const [muscle, muscleCount] of Object.entries(muscleCounts)) {
-                console.log(`    ${muscle}: ${muscleCount}`);
-            }
-        } else {
-            console.log(`    (empty hash)`);
-        }
-
-        await redisClient.disconnect();
-        return {
-            exercises,
-            count: parseInt(count) || 0,
-            muscleCounts
-        };
-    } catch (error) {
-        log(`Redis check failed: ${error.message}`, 'error');
-        if (redisClient.isOpen) {
-            await redisClient.disconnect();
-        }
-        return null;
-    }
-}
-
-// ==========================================
-// TEST HELPERS
-// ==========================================
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 // ==========================================
 // MAIN TEST FLOW
@@ -299,30 +37,20 @@ async function runSessionTest() {
     console.log(colors.magenta + '━'.repeat(70) + colors.reset + '\n');
 
     // Validate configuration
-    if (!SUPABASE_ANON_KEY) {
-        log('Missing SUPABASE_ANON_KEY in .env.test!', 'error');
-        log('Copy .env.test.example to .env.test and fill in your values', 'info');
-        process.exit(1);
-    }
-    if (!EMAIL || !PASSWORD) {
-        log('Missing TEST_EMAIL or TEST_PASSWORD in .env.test!', 'error');
-        log('Copy .env.test.example to .env.test and fill in your values', 'info');
-        process.exit(1);
-    }
+    validateConfig();
+
     if (TEST_EXERCISE_NAMES.length === 0) {
         log('No test exercise names configured!', 'error');
         log('Update TEST_EXERCISE_NAMES in test-session.js', 'info');
         process.exit(1);
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
     try {
         // ==========================================
         // STEP 1: AUTHENTICATION
         // ==========================================
         section('STEP 1: Authentication');
-        const { user, token } = await signInUser(supabase);
+        const { user, token } = await signInUser();
 
         // ==========================================
         // STEP 2: FETCH & BUILD EXERCISE LOOKUP
@@ -336,19 +64,7 @@ async function runSessionTest() {
         log(`Built exercise lookup with ${exerciseLookup.size} entries`, 'success');
         
         // Resolve test exercise IDs from names
-        const TEST_EXERCISES = [];
-        for (const exerciseName of TEST_EXERCISE_NAMES) {
-            const exercise = exerciseLookup.get(exerciseName.toLowerCase());
-            if (!exercise) {
-                log(`⚠️  Exercise not found: "${exerciseName}"`, 'error');
-                log('Available exercises:', 'info');
-                const sample = Array.from(exerciseLookup.keys()).slice(0, 10);
-                sample.forEach(key => console.log(`  - ${key}`));
-                throw new Error(`Exercise "${exerciseName}" not found in database`);
-            }
-            TEST_EXERCISES.push(exercise);
-            log(`  ✓ Found: "${exerciseName}" → ID ${exercise.id} (${exercise.muscle})`, 'success');
-        }
+        const TEST_EXERCISES = resolveExercises(exerciseLookup, TEST_EXERCISE_NAMES);
 
         // ==========================================
         // STEP 3: CREATE WORKOUT
@@ -370,31 +86,14 @@ async function runSessionTest() {
         const recommendations = [];
 
         // Log 3 different exercises, 3 sets each
-        for (let exerciseIdx = 0; exerciseIdx < 3; exerciseIdx++) {
+        for (let exerciseIdx = 0; exerciseIdx < TEST_EXERCISES.length; exerciseIdx++) {
             const exercise = TEST_EXERCISES[exerciseIdx];
             
             log(`\n🏋️  Exercise ${exerciseIdx + 1}: ${exercise.name} (${exercise.muscle})`, 'workout');
             
             // Log 3 sets for this exercise
-            for (let set = 1; set <= 3; set++) {
-                const isFirst = (exerciseIdx === 0); 
-                const weight = 135;
-                const reps = 12;
-                
-                log(`  Set ${set}: ${weight}lbs x ${reps} reps (first=${isFirst ? 1 : 0})`, 'info');
-                
-                const logEntry = await createLog(
-                    token,
-                    workoutId,
-                    exercise.id,
-                    weight,
-                    reps,
-                    isFirst
-                );
-                
-                // Small delay to ensure timestamp ordering
-                await sleep(100);
-            }
+            const isFirst = (exerciseIdx === 0);
+            await logExerciseSets(token, workoutId, exercise, 3, isFirst);
             
             log(`  ✓ Completed 3 sets of ${exercise.name}`, 'success');
             
@@ -414,11 +113,7 @@ async function runSessionTest() {
                     recommendation: recommendation
                 });
                 
-                log(`  Recommended: ${recommendation.top_muscle} / ${recommendation.top_machine} / ${recommendation.top_type}`, 'recommendation');
-                
-                if (recommendation.recommendations && recommendation.recommendations.length > 0) {
-                    log(`  Top recommendation: ${(recommendation.recommendations[0].variant? recommendation.recommendations[0].variant : "")  + " " + recommendation.recommendations[0].name || 'Exercise ' + recommendation.recommendations[0].id}`, 'recommendation');
-                }
+                displayRecommendation(recommendation, exercise.name);
             } catch (error) {
                 log(`  ⚠️  Recommendation failed: ${error.message}`, 'error');
                 log(`  This is expected if you haven't trained models yet`, 'info');
@@ -452,39 +147,17 @@ async function runSessionTest() {
         // ==========================================
         section('STEP 6: Redis Session State Check');
         
-        if (!REDIS_HOST || !REDIS_PORT || !REDIS_PASSWORD) {
-            log('⚠️  Redis configuration not found in .env.test', 'info');
-            log('Add REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD to check cache state', 'info');
+        const redisData = await checkRedisSession(workoutId);
+        
+        if (redisData) {
+            log('✅ Successfully retrieved Redis session state!', 'success');
+            verifyRedisSession(redisData, TEST_EXERCISES.length);
+        } else {
+            log('⚠️  Could not check Redis session state', 'info');
             console.log('\n' + colors.yellow + 'Expected Redis Keys:' + colors.reset);
             console.log(`  session:${workoutId}:exercises     → Set of exercise IDs: {${TEST_EXERCISES.map(e => e.id).join(', ')}}`);
             console.log(`  session:${workoutId}:count         → Total count: ${TEST_EXERCISES.length}`);
             console.log(`  session:${workoutId}:muscle_counts → Hash with muscle group counts`);
-        } else {
-            const redisData = await checkRedisSession(workoutId);
-            
-            if (redisData) {
-                log('✅ Successfully retrieved Redis session state!', 'success');
-                
-                // Verify expected vs actual
-                console.log('\n' + colors.yellow + 'Verification:' + colors.reset);
-                const expectedExercises = TEST_EXERCISES.length;
-                const actualExercises = redisData.exercises.length;
-                
-                if (actualExercises === expectedExercises) {
-                    log(`✓ Exercise count matches: ${actualExercises}/${expectedExercises}`, 'success');
-                } else {
-                    log(`✗ Exercise count mismatch: ${actualExercises}/${expectedExercises}`, 'error');
-                }
-                
-                if (redisData.count === expectedExercises) {
-                    log(`✓ Count key matches: ${redisData.count}`, 'success');
-                } else {
-                    log(`✗ Count key mismatch: ${redisData.count} (expected ${expectedExercises})`, 'error');
-                }
-                
-                const muscleGroupCount = Object.keys(redisData.muscleCounts).length;
-                log(`✓ Muscle groups tracked: ${muscleGroupCount}`, 'success');
-            }
         }
 
         // ==========================================

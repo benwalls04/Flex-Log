@@ -16,12 +16,12 @@ public class Log {
     @Column(name = "user_id", nullable = false)
     private UUID userId;
 
-    @ManyToOne
-    @JoinColumn(name="exercise_id", nullable = false)
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "exercise_id", nullable = false)
     private Exercise exercise;
 
-    @ManyToOne
-    @JoinColumn(name="workout_id")
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "workout_id")
     private Workout workout;
 
     @Column(name = "timestamp", nullable = false)
@@ -36,11 +36,12 @@ public class Log {
     @Column(name = "first")
     private Integer first;
 
-    public Log() {}
+    public Log() {
+    }
 
     // Full constructor with relationships
     public Log(Integer id, UUID userId, Instant timestamp, Exercise exercise, Workout workout,
-               Double weight, Integer reps, Integer first) {
+            Double weight, Integer reps, Integer first) {
         this.id = id;
         this.userId = userId;
         this.timestamp = timestamp;
@@ -55,9 +56,13 @@ public class Log {
         return id;
     }
 
-    public UUID getUserId() { return userId; }
+    public UUID getUserId() {
+        return userId;
+    }
 
-    public void setUserId(UUID userId) { this.userId = userId; }
+    public void setUserId(UUID userId) {
+        this.userId = userId;
+    }
 
     public Exercise getExercise() {
         return exercise;
