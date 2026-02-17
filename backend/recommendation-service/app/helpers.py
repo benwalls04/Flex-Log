@@ -8,30 +8,31 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
-from dotenv import load_dotenv
 import tempfile
-import boto3
-
-load_dotenv()
-DB_CONFIG = {
-    "host": os.environ.get("DB_HOST"),
-    "port": os.environ.get("DB_PORT", "5432"),
-    "database": os.environ.get("DB_NAME", "postgres"),
-    "user": os.environ.get("DB_USER", "postgres"),
-    "password": os.environ.get("DB_PASSWORD"),
-    "sslmode": "require"
-}
 
 def get_db_connection():
-    """Create and return a PostgreSQL connection"""
-    return psycopg2.connect(**DB_CONFIG)
+    """
+    Get a database connection from the pool.
+    IMPORTANT: Must call release_db_connection() when done!
+    """
+    from app.dependencies import get_db_connection as get_pool_connection
+    return get_pool_connection()
+
+def release_db_connection(conn):
+    """Return a database connection to the pool"""
+    from app.dependencies import release_db_connection as release_conn
+    release_conn(conn)
 
 def test_db():
-    with get_db_connection() as conn:
+    """Test database connectivity"""
+    conn = get_db_connection()
+    try:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute("SELECT * FROM users")
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
+    finally:
+        release_db_connection(conn)
   
 def encode_features(df, workout_name=None, column_mapping=None):
     for group in MUSCLE_GROUPS: 
@@ -86,8 +87,10 @@ def decode_features(df):
     
     return decoded_df
 
-def get_train_features(user_id): 
-    with get_db_connection() as conn:
+def get_train_features(user_id):
+    """Get training features for a user (Note: This is not used in recommendation-service)"""
+    conn = get_db_connection()
+    try:
         with conn.cursor() as cursor:
             cursor.execute("""
                 SELECT 
@@ -142,9 +145,13 @@ def get_train_features(user_id):
                 df.loc[df["first"] == 1, col] = 0
             
             return df
+    finally:
+        release_db_connection(conn)
   
 def get_inference_features(exercise_id: int, workout_id : int, workout_name: str):
-    with get_db_connection() as conn:
+    """Get features for inference/prediction"""
+    conn = get_db_connection()
+    try:
         with conn.cursor() as cursor:
             cursor.execute("""
                 SELECT   
@@ -176,12 +183,15 @@ def get_inference_features(exercise_id: int, workout_id : int, workout_name: str
                 raise ValueError(f"Missing features in inference dataframe: {missing_cols}")
 
             return df
+    finally:
+        release_db_connection(conn)
    
 def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : int, top_n: int):
-
+    """Get top N exercise recommendations based on model predictions"""
     done_exercises = get_session_exercises(workout_id)
 
-    with get_db_connection() as conn:
+    conn = get_db_connection()
+    try:
         groups = workout_name.split()
         conditions = " OR ".join(f"muscle_group = %s" for g in groups)
         
@@ -194,6 +204,8 @@ def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : i
             params = groups
 
         df = pd.read_sql(query, conn, params=params)
+    finally:
+        release_db_connection(conn)
     
     df_encoded = encode_features(df, workout_name=workout_name)
 
@@ -205,7 +217,8 @@ def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : i
     similarity = (X_norm @ pred_norm.T).ravel() 
 
     # Get exercise frequencies - vectorized
-    with get_db_connection() as conn:
+    conn = get_db_connection()
+    try:
         with conn.cursor() as cursor:
             cursor.execute("""
                 SELECT exercise_id, COUNT(*) as count FROM logs WHERE user_id = %s GROUP BY exercise_id
@@ -216,6 +229,8 @@ def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : i
                 SELECT COUNT(*) FROM logs WHERE user_id = %s
             """, (user_id,))
             total_logs = cursor.fetchone()[0]
+    finally:
+        release_db_connection(conn)
     
     # Build frequency vector aligned with df_encoded
     freq_vector = np.zeros(len(df_encoded))
@@ -225,7 +240,6 @@ def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : i
         for i, ex_id in enumerate(exercise_ids):
             freq_vector[i] = freq_dict.get(ex_id, 0)
     
-    # Vectorized weighted score calculation
     a = .5
     weighted_scores = a * similarity + (1 - a) * freq_vector
     
@@ -235,15 +249,18 @@ def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : i
     decoded_results = decode_features(topN_results)
 
     top_exercise_id = int(df_encoded.iloc[top_idx[0]]["id"])
-    #add_exercise_to_session(workout_id=workout_id, exercise_id=top_exercise_id)
 
     return decoded_results
 
 def get_all_users() -> list:
-    with get_db_connection() as conn:
+    """Get all user IDs from the database"""
+    conn = get_db_connection()
+    try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT id FROM users")
             return [row[0] for row in cursor.fetchall()]
+    finally:
+        release_db_connection(conn)
     
 def load_model(path: Path):
     if not path.exists():
@@ -251,8 +268,11 @@ def load_model(path: Path):
     return joblib.load(path)
 
 
-s3 = boto3.client("s3")
 def dump_model_to_s3(model, bucket, key):
+    """Upload a model to S3 using the shared S3 client"""
+    from app.dependencies import get_s3_client
+    s3 = get_s3_client()
+    
     # Use delete=False to prevent auto-deletion on Windows
     with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as tmp:
         tmp_path = tmp.name
@@ -267,6 +287,10 @@ def dump_model_to_s3(model, bucket, key):
             os.unlink(tmp_path)
 
 def load_model_from_s3(bucket, key):
+    """Download and load a model from S3 using the shared S3 client"""
+    from app.dependencies import get_s3_client
+    s3 = get_s3_client()
+    
     with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as tmp:
         tmp_path = tmp.name
     
@@ -278,16 +302,3 @@ def load_model_from_s3(bucket, key):
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
     
-def test_s3():
-    s3 = boto3.client("s3")
-    print([b['Name'] for b in s3.list_buckets()['Buckets']])
-
-    # Upload a test object
-    s3.put_object(Bucket="flexlog-models", Key="test.txt", Body=b"hello")
-
-    # Get the object
-    response = s3.get_object(Bucket="flexlog-models", Key="test.txt")
-
-    # Read the content
-    data = response['Body'].read()
-    print(data)

@@ -41,11 +41,12 @@ def get_clients():
     if DB_CONFIG is None:
         DB_CONFIG = {
             "host": supabase_secret["DB_HOST"], 
-            "port": supabase_secret["DB_PORT"],
-            "database": "postgres",
-            "user": "postgres",
+            "port": int(supabase_secret.get("DB_PORT", 6543)), 
+            "database": supabase_secret.get("DB_NAME", "postgres"), 
+            "user": supabase_secret["DB_USER"],
             "password": supabase_secret["DB_PASSWORD"],
-            "sslmode": "require"
+            "sslmode": "require",
+            "connect_timeout": 15
         }
     
     return secrets_client, s3_client, DB_CONFIG
@@ -165,9 +166,9 @@ def train(user_id):
         
         X = df[FEATURE_LABELS].values
 
-        y_muscle = df[MUSCLE_GROUPS]
-        y_machine = df[MACHINE_LABELS]
-        y_type = df[TYPE_LABELS] 
+        y_muscle = df[[f"target_{mg}" for mg in MUSCLE_GROUPS]]
+        y_machine = df[[f"target_{mt}" for mt in MACHINE_LABELS]]
+        y_type = df[[f"target_{t}" for t in TYPE_LABELS]]
 
         ridge_muscle  = Ridge(alpha=1.0).fit(X, y_muscle)
         ridge_machine = Ridge(alpha=1.0).fit(X, y_machine)

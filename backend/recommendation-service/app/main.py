@@ -7,8 +7,9 @@ import numpy as np
 from app.helpers import test_db, load_model_from_s3, get_inference_features, get_top_N
 from app.label_manager import *
 from app.auth import get_current_user
+from app.dependencies import lifespan
 
-app = FastAPI() 
+app = FastAPI(lifespan=lifespan) 
 
 @app.get("/recommendation")
 async def get_recommendation(

@@ -24,7 +24,7 @@ import {
 // ==========================================
 // PARSE COMMAND LINE ARGUMENTS
 // ==========================================
-const WORKOUT_NAME = process.argv[2] || 'shoulders biceps triceps';
+const WORKOUT_NAME = process.argv[2] || 'back triceps';
 const NUM_EXERCISES = parseInt(process.argv[3]) || 5;
 const SETS_PER_EXERCISE = parseInt(process.argv[4]) || 3;
 
