@@ -7,6 +7,7 @@
   "scripts": {
     "test": "node test-auth.js",
     "test:session": "node test-session.js",
+    "test:data": "node test-data-visualization.js",
     "test:model": "node test-model-workout.js",
     "check:redis": "node check-redis-session.js"
   },
