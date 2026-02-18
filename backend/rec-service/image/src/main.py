@@ -1,35 +1,26 @@
-"""
-Recommendation Lambda: single-file handler.
-Connections: DB and Redis from Secrets Manager; S3 via Lambda IAM role.
-
-Env: DB_SECRET_NAME (or SECRET_NAME) = secret with DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD.
-     Optional REDIS_SECRET_NAME = secret with REDIS_HOST, REDIS_PORT, REDIS_PASSWORD.
-     If unset, Redis config is read from the DB secret (one secret can hold both).
-"""
 import os
 import json
 import tempfile
-from pathlib import Path
-
 import boto3
 import joblib
 import numpy as np
 import pandas as pd
 import psycopg2
 import redis
+import logging
 
-# --- Connection state (filled from Secrets Manager on first use) ---
 _db_secret = None
 _redis_secret = None
 _redis_client = None
 
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 def _get_db_secret():
-    """Load DB config from Secrets Manager. Cached per Lambda container."""
     global _db_secret
     if _db_secret is not None:
         return _db_secret
-    name = os.environ.get("DB_SECRET_NAME") or os.environ.get("DB_SECRET_NAME", "dev/supabase")
+    name = os.environ.get("DB_SECRET_NAME", "dev/supabase")
     region = os.environ.get("AWS_REGION", "us-east-1")
     client = boto3.client("secretsmanager", region_name=region)
     _db_secret = json.loads(client.get_secret_value(SecretId=name)["SecretString"])
@@ -37,11 +28,10 @@ def _get_db_secret():
 
 
 def _get_redis_secret():
-    """Load Redis config from Secrets Manager. Uses REDIS_SECRET_NAME if set, else DB secret."""
     global _redis_secret
     if _redis_secret is not None:
         return _redis_secret
-    name =  os.environ.get("REDIS_SECRET_NAME") or os.environ.get("REDIS_SECRET_NAME", "dev/Redis")
+    name = os.environ.get("REDIS_SECRET_NAME", "dev/Redis")
 
     region = os.environ.get("AWS_REGION", "us-east-1")
     client = boto3.client("secretsmanager", region_name=region)
@@ -51,7 +41,6 @@ def _get_redis_secret():
 
 
 def get_db_connection():
-    """Return a new DB connection. Caller must call release_db_connection(conn) when done."""
     s = _get_db_secret()
     return psycopg2.connect(
         host=s["DB_HOST"],
@@ -63,18 +52,7 @@ def get_db_connection():
         connect_timeout=15,
     )
 
-
-def release_db_connection(conn):
-    """Release a DB connection (close it)."""
-    if conn:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-
 def get_redis_client():
-    """Return a Redis client. Cached per Lambda container."""
     global _redis_client
     if _redis_client is not None:
         return _redis_client
@@ -162,7 +140,7 @@ def decode_features(df):
     if machine_cols:
         decoded_df['machine_type'] = df[machine_cols].idxmax(axis=1)
         decoded_df.drop(columns=machine_cols, inplace=True)
-    
+        
     # Decode exercise types
     type_cols = [col for col in df.columns if col in [t.lower() for t in TYPE_LABELS]]
     if type_cols:
@@ -172,69 +150,59 @@ def decode_features(df):
     # Remove workout day columns (e.g., chest_day, back_day, etc.)
     day_cols = [col for col in df.columns if col.endswith('_day')]
     if day_cols:
-        decoded_df.drop(columns=day_cols, inplace=True)
-    
+        decoded_df.drop(columns=day_cols, inplace=True)        
+
     return decoded_df
 
-def get_inference_features(exercise_id: int, workout_id : int, workout_name: str):
-    """Get features for inference/prediction"""
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT   
-                muscle_group, machine_type, exercise_type
-                FROM exercises 
-                WHERE id = %s
-            """, (exercise_id, ))
+def get_inference_features(exercise_id: int, workout_id : int, workout_name: str, conn):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT   
+            muscle_group, machine_type, exercise_type
+            FROM exercises 
+            WHERE id = %s
+        """, (exercise_id, ))
 
-            rows = cursor.fetchall()
+        rows = cursor.fetchall()
 
-            if not rows:
-                raise ValueError(f"Exercise {exercise_id} not found in database")
+        if not rows:
+            raise ValueError(f"Exercise {exercise_id} not found in database")
 
-            df = pd.DataFrame(rows, columns=["muscle_group", "machine_type", "exercise_type"])
+        df = pd.DataFrame(rows, columns=["muscle_group", "machine_type", "exercise_type"])
 
-            df = encode_features(df, workout_name=workout_name)
+        df = encode_features(df, workout_name=workout_name)
 
-            group_counts = get_muscle_group_counts(workout_id)
-            for group in MUSCLE_GROUPS:
-                if group in group_counts: 
-                    df[f"num_prev_{group}"] = group_counts[group]
-                else: 
-                    df[f"num_prev_{group}"] = 0 
+        group_counts = get_muscle_group_counts(workout_id)
+        for group in MUSCLE_GROUPS:
+            if group in group_counts: 
+                df[f"num_prev_{group}"] = group_counts[group]
+            else: 
+                df[f"num_prev_{group}"] = 0 
 
-            df["position"] = get_session_position(workout_id)
+        df["position"] = get_session_position(workout_id)
 
-            missing_cols = [col for col in FEATURE_LABELS if col not in df.columns]
-            if missing_cols:
-                raise ValueError(f"Missing features in inference dataframe: {missing_cols}")
+        missing_cols = [col for col in FEATURE_LABELS if col not in df.columns]
+        if missing_cols:
+            raise ValueError(f"Missing features in inference dataframe: {missing_cols}")
 
-            return df
-    finally:
-        release_db_connection(conn)
-   
-def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : int, top_n: int):
-    """Get top N exercise recommendations based on model predictions"""
+        return df 
+
+def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : int, top_n: int, conn):
     done_exercises = get_session_exercises(workout_id)
 
-    conn = get_db_connection()
-    try:
-        groups = workout_name.split()
-        conditions = " OR ".join(f"muscle_group = %s" for g in groups)
-        
-        if done_exercises:
-            exclude_placeholders = ','.join(['%s'] * len(done_exercises))
-            query = f"SELECT * FROM exercises WHERE ({conditions}) AND id NOT IN ({exclude_placeholders})"
-            params = groups + list(done_exercises)
-        else:
-            query = f"SELECT * FROM exercises WHERE ({conditions})"
-            params = groups
-
-        df = pd.read_sql(query, conn, params=params)
-    finally:
-        release_db_connection(conn)
+    groups = workout_name.split()
+    conditions = " OR ".join(f"muscle_group = %s" for g in groups)
     
+    if done_exercises:
+        exclude_placeholders = ','.join(['%s'] * len(done_exercises))
+        query = f"SELECT * FROM exercises WHERE ({conditions}) AND id NOT IN ({exclude_placeholders})"
+        params = groups + list(done_exercises)
+    else:
+        query = f"SELECT * FROM exercises WHERE ({conditions})"
+        params = groups
+
+    df = pd.read_sql(query, conn, params=params)
+
     df_encoded = encode_features(df, workout_name=workout_name)
 
     X = df_encoded[EXERCISE_LABELS].astype(float).values
@@ -244,21 +212,16 @@ def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : i
     pred_norm = pred_vector / (np.linalg.norm(pred_vector) + 1e-8) 
     similarity = (X_norm @ pred_norm.T).ravel() 
 
-    # Get exercise frequencies - vectorized
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT exercise_id, COUNT(*) as count FROM logs WHERE user_id = %s GROUP BY exercise_id
-            """, (user_id, ))
-            rows = cursor.fetchall()
-            
-            cursor.execute("""
-                SELECT COUNT(*) FROM logs WHERE user_id = %s
-            """, (user_id,))
-            total_logs = cursor.fetchone()[0]
-    finally:
-        release_db_connection(conn)
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT exercise_id, COUNT(*) as count FROM logs WHERE user_id = %s GROUP BY exercise_id
+        """, (user_id, ))
+        rows = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT COUNT(*) FROM logs WHERE user_id = %s
+        """, (user_id,))
+        total_logs = cursor.fetchone()[0]
     
     # Build frequency vector aligned with df_encoded
     freq_vector = np.zeros(len(df_encoded))
@@ -276,8 +239,6 @@ def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : i
     topN_results = df_encoded.iloc[top_idx]
     decoded_results = decode_features(topN_results)
 
-    top_exercise_id = int(df_encoded.iloc[top_idx[0]]["id"])
-
     return decoded_results
 
 
@@ -293,65 +254,99 @@ def load_model_from_s3(bucket, key):
             os.unlink(tmp_path)
     
 def recommendation_core(workout_id: int, workout_name: str, exercise_id: int, user_id: str) -> dict:
-    """Core recommendation logic. Called by handler after parsing event."""
-    machine_model = load_model_from_s3("flexlog-models", f"user_{user_id}/machine.joblib")
-    muscle_model = load_model_from_s3("flexlog-models", f"user_{user_id}/muscle.joblib")
-    type_model = load_model_from_s3("flexlog-models", f"user_{user_id}/type.joblib")
-
-    df = get_inference_features(exercise_id, workout_id, workout_name)
-    X = df[FEATURE_LABELS].values
-
-    muscle_probs = muscle_model.predict(X)
-    machine_probs = machine_model.predict(X)
-    type_probs = type_model.predict(X)
-
+    logger.info(
+        "recommendation_core start user_id=%s workout_id=%s exercise_id=%s",
+        user_id, workout_id, exercise_id,
+    )
+    conn = get_db_connection()
     try:
+        machine_model = load_model_from_s3("flexlog-models", f"user_{user_id}/machine.joblib")
+        muscle_model = load_model_from_s3("flexlog-models", f"user_{user_id}/muscle.joblib")
+        type_model = load_model_from_s3("flexlog-models", f"user_{user_id}/type.joblib")
+        
+        df = get_inference_features(exercise_id, workout_id, workout_name, conn)
+
+        logger.info("Inference features shape: %s", df.shape if df is not None else None)
+        X = df[FEATURE_LABELS].values
+
+        muscle_probs = muscle_model.predict(X)
+        machine_probs = machine_model.predict(X)
+        type_probs = type_model.predict(X)
+
         muscle_label = MUSCLE_GROUPS[muscle_probs.argmax(axis=1)[0]]
         machine_label = MACHINE_LABELS[machine_probs.argmax(axis=1)[0]]
         type_label = TYPE_LABELS[type_probs.argmax(axis=1)[0]]
-    except Exception as e:
-        return {"error": f"Models not found for user {user_id}. Train models first.", "detail": str(e)}
 
-    pred_vector = np.concatenate([muscle_probs, machine_probs, type_probs], axis=1)
+        pred_vector = np.concatenate([muscle_probs, machine_probs, type_probs], axis=1)
 
-    top_recommendations = get_top_N(
-        user_id=user_id,
-        workout_id=workout_id,
-        workout_name=workout_name,
-        pred_vector=pred_vector,
-        top_n=5,
-    )
+        top_recommendations = get_top_N(
+            user_id=user_id,
+            workout_id=workout_id,
+            workout_name=workout_name,
+            pred_vector=pred_vector,
+            top_n=5,
+            conn=conn,
+        )
 
-    return {
-        "top_muscle": muscle_label,
-        "top_machine": machine_label,
-        "top_type": type_label,
-        "recommendations": top_recommendations.to_dict(orient="records"),
-    }
+        logger.info("Top N count: %s", len(top_recommendations) if top_recommendations is not None else 0)
+
+        return {
+            "top_muscle": muscle_label,
+            "top_machine": machine_label,
+            "top_type": type_label,
+            "recommendations": top_recommendations.to_dict(orient="records"),
+        }
+    finally:
+        if conn: 
+            conn.close()
+        logger.info("recommendation_core done user_id=%s", user_id)
 
 
 def handler(event, context):
-    # Lambda authorizer (HTTP API v2) passes context as requestContext.authorizer.<key>
-    request_context = event.get("requestContext", {})
-    authorizer = request_context.get("authorizer", {})
-    user_id = authorizer.get("user_id")
+    request_id = getattr(context, "aws_request_id", None)
+    logger.info("request start request_id=%s", request_id)
+    
+    try: 
+        request_context = event.get("requestContext")
+        authorizer = request_context.get("authorizer")
+        user_id = authorizer.get("lambda", {}).get("user_id")
+    except Exception as e: 
+        logger.warning("Error retrieving userId %s", str(e))
+        return {"statusCode": 401, "body": json.dumps({"error": "Unauthorized"})}
 
     if not user_id:
-        return {
-            "statusCode": 401,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": "Unauthorized"}),
-        }
+        logger.warning("user_id missing from authorizer context")
+        return {"statusCode": 401, "body": json.dumps({"error": "Unauthorized"})}
 
-    body = event.get("body", event)
-    if isinstance(body, str):
-        body = json.loads(body)
-    workout_id = int(body["workout_id"])
-    workout_name = body["workout_name"]
-    exercise_id = int(body["exercise_id"])
-    result = recommendation_core(workout_id, workout_name, exercise_id, user_id)
-    return {
-        "statusCode": 200,
-        "headers": {"Content-Type": "application/json"},
-        "body": json.dumps(result),
-    }
+    logger.info("request_context=%s authorizer=%s user_id=%s", request_context, authorizer, user_id)
+
+    try:
+        body = event.get("body", event)
+        if isinstance(body, str):
+            body = json.loads(body)
+        workout_id = int(body["workout_id"])
+        workout_name = body["workout_name"]
+        exercise_id = int(body["exercise_id"])
+    except (KeyError, ValueError, json.JSONDecodeError) as e:
+        logger.warning("Invalid request body: %s", str(e))
+        return {"statusCode": 400, "body": json.dumps({"error": "Invalid request body"})}
+
+    logger.info(
+        "request params request_id=%s user_id=%s workout_id=%s exercise_id=%s",
+        request_id, user_id, workout_id, exercise_id,
+    )
+
+    try:
+        result = recommendation_core(workout_id, workout_name, exercise_id, user_id)
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps(result),
+        }
+    except Exception as e:
+        logger.exception("recommendation failed request_id=%s: %s", request_id, str(e))
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"error": "Internal server error", "detail": str(e)}),
+        }

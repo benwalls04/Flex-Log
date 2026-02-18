@@ -20,22 +20,31 @@ class RecServiceStack(Stack):
         )
         
         # Create Lambda function from Docker image
-        rec_function = lambda_.DockerImageFunction(
-            self, "TrainingFunction",
+        function = lambda_.DockerImageFunction(
+            self, "RecommendationFunction",
             code=lambda_.DockerImageCode.from_image_asset(
                 os.path.join(os.path.dirname(__file__), "..", "image")
             ),
             memory_size=3008, 
             timeout=Duration.minutes(15), 
             environment={
-                "SECRET_NAME": "dev/supabase"
+                "DB_SECRET_NAME": "dev/supabase"
+
             }
         )
         
         # Grant Secrets Manager access to Lambda
-        secret = secretsmanager.Secret.from_secret_complete_arn(
+        # Grant Secrets Manager access to Lambda
+        db_secret = secretsmanager.Secret.from_secret_complete_arn(
             self, "SupabaseSecret",
             "arn:aws:secretsmanager:us-east-1:471112794843:secret:dev/supabase-S2mbfc"
         )
-        secret.grant_read(rec_function)
-        models_bucket.grant_read_write(rec_function)
+        db_secret.grant_read(function)
+
+        redis_secret = secretsmanager.Secret.from_secret_complete_arn(
+            self, "RedisSecret",
+            "arn:aws:secretsmanager:us-east-1:471112794843:secret:dev/Redis-cvlyE8"
+        )
+        redis_secret.grant_read(function)
+
+        models_bucket.grant_read_write(function)
