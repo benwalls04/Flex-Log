@@ -1,38 +1,127 @@
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from fastapi import HTTPException
-from pathlib import Path
-from app.label_manager import *
-from app.sessions import get_session_exercises, add_exercise_to_session, get_muscle_group_counts, get_session_position
-import pandas as pd
-import numpy as np
-import joblib
+"""
+Recommendation Lambda: single-file handler.
+Connections: DB and Redis from Secrets Manager; S3 via Lambda IAM role.
+
+Env: DB_SECRET_NAME (or SECRET_NAME) = secret with DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD.
+     Optional REDIS_SECRET_NAME = secret with REDIS_HOST, REDIS_PORT, REDIS_PASSWORD.
+     If unset, Redis config is read from the DB secret (one secret can hold both).
+"""
 import os
+import json
 import tempfile
+from pathlib import Path
+
+import boto3
+import joblib
+import numpy as np
+import pandas as pd
+import psycopg2
+import redis
+
+# --- Connection state (filled from Secrets Manager on first use) ---
+_db_secret = None
+_redis_secret = None
+_redis_client = None
+
+
+def _get_db_secret():
+    """Load DB config from Secrets Manager. Cached per Lambda container."""
+    global _db_secret
+    if _db_secret is not None:
+        return _db_secret
+    name = os.environ.get("DB_SECRET_NAME") or os.environ.get("DB_SECRET_NAME", "dev/supabase")
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    client = boto3.client("secretsmanager", region_name=region)
+    _db_secret = json.loads(client.get_secret_value(SecretId=name)["SecretString"])
+    return _db_secret
+
+
+def _get_redis_secret():
+    """Load Redis config from Secrets Manager. Uses REDIS_SECRET_NAME if set, else DB secret."""
+    global _redis_secret
+    if _redis_secret is not None:
+        return _redis_secret
+    name =  os.environ.get("REDIS_SECRET_NAME") or os.environ.get("REDIS_SECRET_NAME", "dev/Redis")
+
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    client = boto3.client("secretsmanager", region_name=region)
+    _redis_secret = json.loads(client.get_secret_value(SecretId=name)["SecretString"])
+    
+    return _redis_secret
+
 
 def get_db_connection():
-    """
-    Get a database connection from the pool.
-    IMPORTANT: Must call release_db_connection() when done!
-    """
-    from app.dependencies import get_db_connection as get_pool_connection
-    return get_pool_connection()
+    """Return a new DB connection. Caller must call release_db_connection(conn) when done."""
+    s = _get_db_secret()
+    return psycopg2.connect(
+        host=s["DB_HOST"],
+        port=int(s.get("DB_PORT", 6543)),
+        dbname=s.get("DB_NAME", "postgres"),
+        user=s["DB_USER"],
+        password=s["DB_PASSWORD"],
+        sslmode="require",
+        connect_timeout=15,
+    )
+
 
 def release_db_connection(conn):
-    """Return a database connection to the pool"""
-    from app.dependencies import release_db_connection as release_conn
-    release_conn(conn)
+    """Release a DB connection (close it)."""
+    if conn:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
-def test_db():
-    """Test database connectivity"""
-    conn = get_db_connection()
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute("SELECT * FROM users")
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
-    finally:
-        release_db_connection(conn)
+
+def get_redis_client():
+    """Return a Redis client. Cached per Lambda container."""
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    s = _get_redis_secret()
+    _redis_client = redis.Redis(
+        host=s["REDIS_HOST"],
+        port=int(s.get("REDIS_PORT", 6379)),
+        password=s.get("REDIS_PASSWORD", ""),
+        decode_responses=True,
+        socket_connect_timeout=5,
+    )
+    return _redis_client
+
+
+def get_s3_client():
+    return boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+
+
+# --- Labels and feature config ---
+MUSCLE_GROUPS = ["chest", "back", "legs", "shoulders", "biceps", "triceps"]
+MACHINE_LABELS = ["barbell", "dumbbell", "machine", "cable", "smith", "misc"]
+TYPE_LABELS = ["isolation", "compound"]
+DAY_LABELS = [f"{group}_day" for group in MUSCLE_GROUPS]
+PREV_LABELS = [f"num_prev_{group}" for group in MUSCLE_GROUPS]
+OTHER_LABELS = ["position"]
+
+EXERCISE_LABELS = MUSCLE_GROUPS + MACHINE_LABELS + TYPE_LABELS
+FEATURE_LABELS = EXERCISE_LABELS + DAY_LABELS + PREV_LABELS + OTHER_LABELS
+
+
+def get_session_exercises(workout_id: int) -> set:
+    redis_client = get_redis_client()
+    key = f"session:{workout_id}:exercises"
+    exercises = redis_client.smembers(key)
+    return {int(ex_id) for ex_id in exercises} if exercises else set()
+
+def get_muscle_group_counts(workout_id: int):
+    redis_client = get_redis_client()
+    key = f"session:{workout_id}:muscle_counts"
+    raw_hash = redis_client.hgetall(key) or {}
+    return {k: int(v) for k, v in raw_hash.items()}
+
+def get_session_position(workout_id: int):
+    redis_client = get_redis_client()
+    key = f"session:{workout_id}:count"
+    count = redis_client.get(key)
+    return int(count) if count else 0
   
 def encode_features(df, workout_name=None, column_mapping=None):
     for group in MUSCLE_GROUPS: 
@@ -87,67 +176,6 @@ def decode_features(df):
     
     return decoded_df
 
-def get_train_features(user_id):
-    """Get training features for a user (Note: This is not used in recommendation-service)"""
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT 
-                    l.first, l.timestamp, 
-                    w.name as workout_name,
-                    e.muscle_group,
-                    e.machine_type, 
-                    e.exercise_type
-                FROM logs l
-                JOIN exercises e ON l.exercise_id = e.id
-                JOIN workouts w ON l.workout_id = w.id
-                WHERE l.user_id = %s
-                GROUP BY l.exercise_id, l.workout_id, l.first, l.timestamp, w.name, e.muscle_group, e.machine_type, e.exercise_type
-                ORDER BY l.timestamp ASC
-            """, (user_id,))
-            rows = cursor.fetchall()
-
-            column_names = [
-                "first", "timestamp", "workout_name", "muscle_group", "machine_type", "exercise_type"
-            ]
-
-            df = pd.DataFrame(rows, columns=column_names)
-
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-            df["day"] = df['timestamp'].dt.day
-            df["workout_name"] = df["workout_name"].fillna("")
-
-            group_counts = {key : 0 for key in MUSCLE_GROUPS}
-            for group in MUSCLE_GROUPS:
-                df[f"num_prev_{group}"] = 0
-
-            df['position'] = 0
-            position = 0
-            for idx, row in df.iterrows(): 
-                if row["first"] == 1: 
-                    for k in group_counts.keys():
-                        group_counts[k] = 0
-                    position = 0
-
-                df.loc[idx, "position"] = position
-                for group, v in group_counts.items(): 
-                    df.loc[idx, f"num_prev_{group}"] = v
-                
-                position += 1
-                group_counts[row["muscle_group"]] += 1
-
-            df = encode_features(df)
-
-            for col in EXERCISE_LABELS:
-                df[f"target_{col}"] = df[col].copy()
-                df[col] = df[col].shift(1).fillna(0).astype(int)
-                df.loc[df["first"] == 1, col] = 0
-            
-            return df
-    finally:
-        release_db_connection(conn)
-  
 def get_inference_features(exercise_id: int, workout_id : int, workout_name: str):
     """Get features for inference/prediction"""
     conn = get_db_connection()
@@ -252,53 +280,74 @@ def get_top_N(user_id, pred_vector: np.array, workout_name : str, workout_id : i
 
     return decoded_results
 
-def get_all_users() -> list:
-    """Get all user IDs from the database"""
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT id FROM users")
-            return [row[0] for row in cursor.fetchall()]
-    finally:
-        release_db_connection(conn)
-    
-def load_model(path: Path):
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"Model file does not exist: {path}")
-    return joblib.load(path)
-
-
-def dump_model_to_s3(model, bucket, key):
-    """Upload a model to S3 using the shared S3 client"""
-    from app.dependencies import get_s3_client
-    s3 = get_s3_client()
-    
-    # Use delete=False to prevent auto-deletion on Windows
-    with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as tmp:
-        tmp_path = tmp.name
-    
-    try:
-        # Now we can write to the file after closing it
-        joblib.dump(model, tmp_path)
-        s3.upload_file(tmp_path, bucket, key)
-    finally:
-        # Clean up manually
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
 def load_model_from_s3(bucket, key):
-    """Download and load a model from S3 using the shared S3 client"""
-    from app.dependencies import get_s3_client
     s3 = get_s3_client()
-    
     with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as tmp:
         tmp_path = tmp.name
-    
     try:
         s3.download_file(bucket, key, tmp_path)
         return joblib.load(tmp_path)
     finally:
-        # Clean up manually
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
     
+def recommendation_core(workout_id: int, workout_name: str, exercise_id: int, user_id: str) -> dict:
+    """Core recommendation logic. Called by handler after parsing event."""
+    machine_model = load_model_from_s3("flexlog-models", f"user_{user_id}/machine.joblib")
+    muscle_model = load_model_from_s3("flexlog-models", f"user_{user_id}/muscle.joblib")
+    type_model = load_model_from_s3("flexlog-models", f"user_{user_id}/type.joblib")
+
+    df = get_inference_features(exercise_id, workout_id, workout_name)
+    X = df[FEATURE_LABELS].values
+
+    muscle_probs = muscle_model.predict(X)
+    machine_probs = machine_model.predict(X)
+    type_probs = type_model.predict(X)
+
+    try:
+        muscle_label = MUSCLE_GROUPS[muscle_probs.argmax(axis=1)[0]]
+        machine_label = MACHINE_LABELS[machine_probs.argmax(axis=1)[0]]
+        type_label = TYPE_LABELS[type_probs.argmax(axis=1)[0]]
+    except Exception as e:
+        return {"error": f"Models not found for user {user_id}. Train models first.", "detail": str(e)}
+
+    pred_vector = np.concatenate([muscle_probs, machine_probs, type_probs], axis=1)
+
+    top_recommendations = get_top_N(
+        user_id=user_id,
+        workout_id=workout_id,
+        workout_name=workout_name,
+        pred_vector=pred_vector,
+        top_n=5,
+    )
+
+    return {
+        "top_muscle": muscle_label,
+        "top_machine": machine_label,
+        "top_type": type_label,
+        "recommendations": top_recommendations.to_dict(orient="records"),
+    }
+
+
+def handler(event, context):
+    request_context = event.get("requestContext", {})
+    authorizer = request_context.get("authorizer", {})
+    jwt_claims = authorizer.get("jwt", {}).get("claims", {})
+
+    user_id = jwt_claims.get("sub")
+    if not user_id:
+        return {"statusCode": 401, "body": "Unauthorized"}
+
+    body = event.get("body", event)
+    if isinstance(body, str):
+        body = json.loads(body)
+    workout_id = int(body["workout_id"])
+    workout_name = body["workout_name"]
+    exercise_id = int(body["exercise_id"])
+    result = recommendation_core(workout_id, workout_name, exercise_id, user_id)
+    return {
+        "statusCode": 200,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(result),
+    }

@@ -2,14 +2,14 @@ from aws_cdk import (
     Stack,
     Duration,
     aws_lambda as lambda_,
-    aws_iam as iam,
     aws_s3 as s3,
-    aws_secretsmanager as secretsmanager
+    aws_secretsmanager as secretsmanager,
 )
+
 from constructs import Construct
 import os
 
-class TrainingServiceStack(Stack):
+class RecServiceStack(Stack):
     def __init__(self, scope: Construct, id: str, **kwargs):
         super().__init__(scope, id, **kwargs)
         
@@ -28,24 +28,14 @@ class TrainingServiceStack(Stack):
             memory_size=3008, 
             timeout=Duration.minutes(15), 
             environment={
-                "DB_SECRET_NAME": "dev/supabase",
-                "REDIS_SECRET_NAME": "dev/Redis"
+                "SECRET_NAME": "dev/supabase"
             }
         )
         
         # Grant Secrets Manager access to Lambda
-        db_secret = secretsmanager.Secret.from_secret_complete_arn(
+        secret = secretsmanager.Secret.from_secret_complete_arn(
             self, "SupabaseSecret",
             "arn:aws:secretsmanager:us-east-1:471112794843:secret:dev/supabase-S2mbfc"
         )
-        db_secret.grant_read(training_function)
-
-        redis_secret = secretsmanager.Secret.from_secret_complete_arn(
-            self, "RedisSecret",
-            "arn:aws:secretsmanager:us-east-1:471112794843:secret:dev/Redis-cvlyE8"
-        )
-        secret.grant_read(training_function)
-
+        secret.grant_read(rec_function)
         models_bucket.grant_read_write(rec_function)
-
-        
