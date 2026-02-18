@@ -331,13 +331,17 @@ def recommendation_core(workout_id: int, workout_name: str, exercise_id: int, us
 
 
 def handler(event, context):
+    # Lambda authorizer (HTTP API v2) passes context as requestContext.authorizer.<key>
     request_context = event.get("requestContext", {})
     authorizer = request_context.get("authorizer", {})
-    jwt_claims = authorizer.get("jwt", {}).get("claims", {})
+    user_id = authorizer.get("user_id")
 
-    user_id = jwt_claims.get("sub")
     if not user_id:
-        return {"statusCode": 401, "body": "Unauthorized"}
+        return {
+            "statusCode": 401,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"error": "Unauthorized"}),
+        }
 
     body = event.get("body", event)
     if isinstance(body, str):
