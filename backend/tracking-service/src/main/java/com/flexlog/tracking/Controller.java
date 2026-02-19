@@ -102,16 +102,16 @@ public class Controller {
 
     // Create a new log
     @PostMapping("/logs/")
-    public ResponseEntity<Log> createUserLog(@RequestBody Log newLog) {
-        // Extract userId from JWT token
+    public ResponseEntity<Log> createUserLog(@RequestBody Log newLog, 
+                                          @RequestParam Integer workoutPosition) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         UUID userId = (UUID) auth.getPrincipal();
-
         newLog.setUserId(userId);
 
-        Log createdLog = logService.createLog(newLog);
+        Log createdLog = logService.createLog(newLog, userId, workoutPosition);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdLog);
     }
+
 
     // Update an existing log
     @PutMapping("/logs/{id}")
