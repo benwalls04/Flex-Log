@@ -9,58 +9,31 @@ import psycopg2
 import redis
 import logging
 
-_db_secret = None
-_redis_secret = None
 _redis_client = None
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-def _get_db_secret():
-    global _db_secret
-    if _db_secret is not None:
-        return _db_secret
-    name = os.environ.get("DB_SECRET_NAME", "dev/supabase")
-    region = os.environ.get("AWS_REGION", "us-east-1")
-    client = boto3.client("secretsmanager", region_name=region)
-    _db_secret = json.loads(client.get_secret_value(SecretId=name)["SecretString"])
-    return _db_secret
-
-
-def _get_redis_secret():
-    global _redis_secret
-    if _redis_secret is not None:
-        return _redis_secret
-    name = os.environ.get("REDIS_SECRET_NAME", "dev/Redis")
-
-    region = os.environ.get("AWS_REGION", "us-east-1")
-    client = boto3.client("secretsmanager", region_name=region)
-    _redis_secret = json.loads(client.get_secret_value(SecretId=name)["SecretString"])
-    
-    return _redis_secret
+logger = logging.getLogger(__name__)
 
 
 def get_db_connection():
-    s = _get_db_secret()
     return psycopg2.connect(
-        host=s["DB_HOST"],
-        port=int(s.get("DB_PORT", 6543)),
-        dbname=s.get("DB_NAME", "postgres"),
-        user=s["DB_USER"],
-        password=s["DB_PASSWORD"],
+        host=os.environ["DB_HOST"],
+        port=int(os.environ.get("DB_PORT", "6543")),
+        dbname=os.environ.get("DB_NAME", "postgres"),
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
         sslmode="require",
         connect_timeout=15,
     )
+
 
 def get_redis_client():
     global _redis_client
     if _redis_client is not None:
         return _redis_client
-    s = _get_redis_secret()
     _redis_client = redis.Redis(
-        host=s["REDIS_HOST"],
-        port=int(s.get("REDIS_PORT", 6379)),
-        password=s.get("REDIS_PASSWORD", ""),
+        host=os.environ["REDIS_HOST"],
+        port=int(os.environ.get("REDIS_PORT", "6379")),
+        password=os.environ.get("REDIS_PASSWORD", ""),
         decode_responses=True,
         socket_connect_timeout=5,
     )
@@ -100,7 +73,20 @@ def get_session_position(workout_id: int):
     key = f"session:{workout_id}:count"
     count = redis_client.get(key)
     return int(count) if count else 0
-  
+
+def get_cached_recommendation(workout_id: int, workout_position: int, exercise_id: int):
+    redis_client = get_redis_client()
+    key = f"session:{workout_id}:recommendation:{exercise_id}:{workout_position}"
+    recs = redis_client.get(key) or []
+    if not recs: 
+      return None
+    return json.loads(recs)
+
+def set_cached_recommendation(workout_id: int, workout_position: int, exercise_id: int, recs): 
+    redis_client = get_redis_client()
+    cache_key = f"session:{workout_id}:recommendation:{exercise_id}:{workout_position}"
+    redis_client.setex(cache_key, 1800, json.dumps(recs)) 
+    
 def encode_features(df, workout_name=None, column_mapping=None):
     for group in MUSCLE_GROUPS: 
         if "workout_name" in df.columns: 
@@ -291,62 +277,9 @@ def recommendation_core(workout_id: int, workout_name: str, exercise_id: int, us
         logger.info("Top N count: %s", len(top_recommendations) if top_recommendations is not None else 0)
 
         return {
-            "top_muscle": muscle_label,
-            "top_machine": machine_label,
-            "top_type": type_label,
             "recommendations": top_recommendations.to_dict(orient="records"),
         }
     finally:
         if conn: 
             conn.close()
         logger.info("recommendation_core done user_id=%s", user_id)
-
-
-def handler(event, context):
-    request_id = getattr(context, "aws_request_id", None)
-    logger.info("request start request_id=%s", request_id)
-    
-    try: 
-        request_context = event.get("requestContext")
-        authorizer = request_context.get("authorizer")
-        user_id = authorizer.get("lambda", {}).get("user_id")
-    except Exception as e: 
-        logger.warning("Error retrieving userId %s", str(e))
-        return {"statusCode": 401, "body": json.dumps({"error": "Unauthorized"})}
-
-    if not user_id:
-        logger.warning("user_id missing from authorizer context")
-        return {"statusCode": 401, "body": json.dumps({"error": "Unauthorized"})}
-
-    logger.info("request_context=%s authorizer=%s user_id=%s", request_context, authorizer, user_id)
-
-    try:
-        body = event.get("body", event)
-        if isinstance(body, str):
-            body = json.loads(body)
-        workout_id = int(body["workout_id"])
-        workout_name = body["workout_name"]
-        exercise_id = int(body["exercise_id"])
-    except (KeyError, ValueError, json.JSONDecodeError) as e:
-        logger.warning("Invalid request body: %s", str(e))
-        return {"statusCode": 400, "body": json.dumps({"error": "Invalid request body"})}
-
-    logger.info(
-        "request params request_id=%s user_id=%s workout_id=%s exercise_id=%s",
-        request_id, user_id, workout_id, exercise_id,
-    )
-
-    try:
-        result = recommendation_core(workout_id, workout_name, exercise_id, user_id)
-        return {
-            "statusCode": 200,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps(result),
-        }
-    except Exception as e:
-        logger.exception("recommendation failed request_id=%s: %s", request_id, str(e))
-        return {
-            "statusCode": 500,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": "Internal server error", "detail": str(e)}),
-        }
