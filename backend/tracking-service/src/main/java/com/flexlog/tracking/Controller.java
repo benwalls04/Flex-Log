@@ -6,16 +6,16 @@ import com.flexlog.tracking.models.Workout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/")
 public class Controller {
+
+    public static final String USER_ID_HEADER = "X-User-Id";
 
     private final LogService logService;
     private final WorkoutService workoutService;
@@ -40,87 +40,69 @@ public class Controller {
     }
 
     @PostMapping("/workouts/")
-    public ResponseEntity<Workout> createWorkout(@RequestBody Workout newWorkout) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        UUID userId = (UUID) auth.getPrincipal();
-
+    public ResponseEntity<Workout> createWorkout(
+            @RequestHeader(USER_ID_HEADER) UUID userId,
+            @RequestBody Workout newWorkout) {
         newWorkout.setUserId(userId);
 
         Workout createdWorkout = workoutService.createWorkout(newWorkout);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdWorkout);
     }
 
-    // Get all workouts for authenticated user
     @GetMapping("/workouts/")
-    public List<Workout> fetchUserWorkouts() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        UUID userId = (UUID) auth.getPrincipal();
-
+    public List<Workout> fetchUserWorkouts(@RequestHeader(USER_ID_HEADER) UUID userId) {
         return workoutService.getWorkoutsByUserId(userId);
     }
 
-    // Get a single workout by ID (verifies ownership)
     @GetMapping("/workouts/{id}")
-    public ResponseEntity<Workout> getWorkout(@PathVariable Integer id) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        UUID userId = (UUID) auth.getPrincipal();
-
+    public ResponseEntity<Workout> getWorkout(
+            @RequestHeader(USER_ID_HEADER) UUID userId,
+            @PathVariable Integer id) {
         Workout workout = workoutService.getWorkout(id);
-        
+
         // Verify the workout belongs to the authenticated user
         if (!workout.getUserId().equals(userId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        
+
         return ResponseEntity.ok(workout);
     }
 
-    // Get all logs for authenticated user
     @GetMapping("/logs/")
-    public List<Log> fetchUserLogs() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        UUID userId = (UUID) auth.getPrincipal();
-
+    public List<Log> fetchUserLogs(@RequestHeader(USER_ID_HEADER) UUID userId) {
         return logService.getLogsByUserId(userId);
     }
 
-    // Get a single log by ID (verifies ownership)
     @GetMapping("/logs/{id}")
-    public ResponseEntity<Log> getLog(@PathVariable Integer id) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        UUID userId = (UUID) auth.getPrincipal();
-
+    public ResponseEntity<Log> getLog(
+            @RequestHeader(USER_ID_HEADER) UUID userId,
+            @PathVariable Integer id) {
         Log log = logService.getLog(id);
-        
+
         // Verify the log belongs to the authenticated user
         if (!log.getUserId().equals(userId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        
+
         return ResponseEntity.ok(log);
     }
 
-    // Create a new log
     @PostMapping("/logs/")
-    public ResponseEntity<Log> createUserLog(@RequestBody Log newLog, 
-                                          @RequestParam Integer workoutPosition) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        UUID userId = (UUID) auth.getPrincipal();
+    public ResponseEntity<Log> createUserLog(
+            @RequestHeader(USER_ID_HEADER) UUID userId,
+            @RequestBody Log newLog,
+            @RequestParam Integer workoutPosition) {
         newLog.setUserId(userId);
 
         Log createdLog = logService.createLog(newLog, userId, workoutPosition);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdLog);
     }
 
-
-    // Update an existing log
     @PutMapping("/logs/{id}")
-    public ResponseEntity<Log> updateLog(@PathVariable Integer id, @RequestBody Log updatedLog) {
-        // Extract userId from JWT token
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        UUID userId = (UUID) auth.getPrincipal();
-
-        // Verify the log belongs to the authenticated user
+    public ResponseEntity<Log> updateLog(
+            @RequestHeader(USER_ID_HEADER) UUID userId,
+            @PathVariable Integer id,
+            @RequestBody Log updatedLog) {
         Log existingLog = logService.getLog(id);
         if (!existingLog.getUserId().equals(userId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
@@ -130,14 +112,10 @@ public class Controller {
         return ResponseEntity.ok(log);
     }
 
-    // Delete a log
     @DeleteMapping("/logs/{id}")
-    public ResponseEntity<Void> deleteLog(@PathVariable Integer id) {
-        // Extract userId from JWT token
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        UUID userId = (UUID) auth.getPrincipal();
-
-        // Verify the log belongs to the authenticated user
+    public ResponseEntity<Void> deleteLog(
+            @RequestHeader(USER_ID_HEADER) UUID userId,
+            @PathVariable Integer id) {
         Log existingLog = logService.getLog(id);
         if (!existingLog.getUserId().equals(userId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();

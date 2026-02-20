@@ -2,6 +2,7 @@
 package com.flexlog.tracking.models;
 
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.util.Date;
 import java.util.Set;
@@ -25,6 +26,7 @@ public class Workout {
     private Date date;
 
     @OneToMany(mappedBy = "workout")
+    @JsonIgnore
     private Set<Log> logs;
 
     // Constructors

@@ -76,6 +76,10 @@ public class Log {
         return workout;
     }
 
+    public void setWorkout(Workout workout) {
+        this.workout = workout;
+    }
+
     public Instant getTimestamp() {
         return timestamp;
     }

@@ -2,12 +2,16 @@ package com.flexlog.tracking;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flexlog.tracking.models.Exercise;
+import com.flexlog.tracking.models.Workout;
 import com.flexlog.tracking.models.Log;
 import com.flexlog.tracking.models.MuscleGroup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 import java.util.HashMap;
 import java.util.List;
@@ -21,16 +25,21 @@ public class LogService {
     private final LogRepository logRepository;
     private final RedisSessionService redisClient;
     private final ExerciseRepository exerciseRepository;
-    private final SqsService sqsService;
-    private final ObjectMapper objectMapper = new ObjectMapper();  // reused, not recreated each call
+    private final WorkoutRepository workoutRepoistory;
+    private final SqsClient sqsClient;
+    private final String sqsQueueUrl;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
-    public LogService(LogRepository logRepository, RedisSessionService redisClient,
-            ExerciseRepository exerciseRepository, SqsService sqsService) {
+    public LogService(LogRepository logRepository, RedisSessionService redisClient, WorkoutRepository workoutRepoistory,
+            ExerciseRepository exerciseRepository, SqsClient sqsClient,
+            @Value("${aws.sqs.queue-url}") String sqsQueueUrl) {
         this.logRepository = logRepository;
         this.redisClient = redisClient;
         this.exerciseRepository = exerciseRepository;
-        this.sqsService = sqsService;
+        this.workoutRepoistory = workoutRepoistory;
+        this.sqsClient = sqsClient;
+        this.sqsQueueUrl = sqsQueueUrl;
     }
 
     public Log getLog(Integer id) {
@@ -48,16 +57,18 @@ public class LogService {
 
     public Log createLog(Log log, UUID userId, Integer workoutPosition) {
         Integer exerciseId = log.getExercise().getId();
+        Integer workoutId = log.getWorkout().getId();
         Exercise fullExercise = exerciseRepository.findById(exerciseId)
                 .orElseThrow(() -> new RuntimeException("Exercise not found: " + exerciseId));
-
+        Workout fullWorkout = workoutRepoistory.findById(workoutId)
+                .orElseThrow(() -> new RuntimeException("Workout not found: " + workoutId));
         logger.info("🔍 [REDIS DEBUG] Fetched full exercise from DB: id={}, name={}, muscleGroup={}",
                 fullExercise.getId(), fullExercise.getName(), fullExercise.getMuscleGroup());
 
         log.setExercise(fullExercise);
+        log.setWorkout(fullWorkout);
 
         Log savedLog = logRepository.save(log);
-        Integer workoutId = savedLog.getWorkout().getId();
 
         logger.info("🔍 [REDIS DEBUG] Processing log for workout_id={}, exercise_id={}", workoutId, exerciseId);
 
@@ -81,10 +92,14 @@ public class LogService {
             message.put("exercise_id", fullExercise.getId());
             message.put("workout_position", workoutPosition);
 
-            sqsService.sendMessage(objectMapper.writeValueAsString(message));
+            sqsClient.sendMessage(SendMessageRequest.builder()
+                    .queueUrl(sqsQueueUrl)
+                    .messageBody(objectMapper.writeValueAsString(message))
+                    .build());
             logger.info("✅ SQS message sent for workout_id={}, exercise_id={}", workoutId, exerciseId);
         } catch (Exception e) {
-            logger.error("Failed to send SQS message for workout_id={}, exercise_id={}: {}", workoutId, exerciseId, e.getMessage());
+            logger.error("Failed to send SQS message for workout_id={}, exercise_id={}: {}", workoutId, exerciseId,
+                    e.getMessage());
             // not re-throwing — SQS failure shouldn't roll back the saved log
         }
 

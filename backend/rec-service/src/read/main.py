@@ -55,7 +55,6 @@ def handler(event, context):
     except Exception as e:
         logger.warning("Redis cache check failed, falling back to live: %s", str(e))
 
-
     try:
         result = recommendation_core(workout_id, workout_name, exercise_id, user_id)
         return {

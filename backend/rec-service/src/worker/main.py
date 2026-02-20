@@ -1,7 +1,7 @@
 import logging
 import json
 
-from core import recommendation_core, set_cached_recommendation
+from core import recommendation_core, set_cached_recommendation, get_cached_recommendation
 
 logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,6 +23,10 @@ def handler(event, context):
 
         logger.info("processing message_id=%s user_id=%s workout_id=%s exercise_id=%s workout_position=%s",
             message_id, user_id, workout_id, exercise_id, workout_position)
+
+        if get_cached_recommendation(workout_id, workout_position, exercise_id): 
+            logger.info("recommendation already in cache")
+            continue 
 
         cache_key = f"session:{workout_id}:recommendation:{exercise_id}:{workout_position}"
         try:
