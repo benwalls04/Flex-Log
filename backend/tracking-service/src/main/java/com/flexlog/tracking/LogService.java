@@ -114,10 +114,15 @@ public class LogService {
         Log existingLog = logRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Log not found"));
 
-        existingLog.setReps(updatedLog.getReps());
-        existingLog.setWeight(updatedLog.getWeight());
-        existingLog.setExercise(updatedLog.getExercise());
-        existingLog.setFirst(updatedLog.getFirst());
+        if (updatedLog.getReps() != null) {
+            existingLog.setReps(updatedLog.getReps());
+        }
+        if (updatedLog.getWeight() != null) {
+            existingLog.setWeight(updatedLog.getWeight());
+        }
+        if (updatedLog.getFirst() != null) {
+            existingLog.setFirst(updatedLog.getFirst());
+        }
 
         return logRepository.save(existingLog);
     }

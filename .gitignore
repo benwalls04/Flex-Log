@@ -101,3 +101,4 @@ Desktop.ini
 # Test Environment Files
 # ------------------------------
 tests/.env.test
+frontend/.env

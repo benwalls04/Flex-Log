@@ -74,7 +74,7 @@ async function runModelWorkoutTest() {
         // ==========================================
         section('STEP 3: Create Workout Session');
         log(`Creating workout: "${WORKOUT_NAME}"`, 'workout');
-        const workout = await createWorkout(token, WORKOUT_NAME);
+        const workout = await createWorkout(token, user.id, WORKOUT_NAME);
         log(`Workout created with ID: ${workout.id}`, 'success');
 
         const workoutId = workout.id;
@@ -128,12 +128,15 @@ async function runModelWorkoutTest() {
                 };
 
                 const isFirst = (exerciseNum === 1);
+                const workoutPosition = (exerciseNum - 1) * SETS_PER_EXERCISE;
                 await logExerciseSets(
                     token,
+                    user.id,
                     workoutId,
                     exercise,
                     SETS_PER_EXERCISE,
                     isFirst,
+                    workoutPosition,
                     { weight: DUMMY_WEIGHT, reps: DUMMY_REPS, delayMs: 50 }
                 );
 

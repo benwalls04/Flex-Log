@@ -72,7 +72,7 @@ async function runSessionTest() {
         section('STEP 3: Create Workout Session');
         const workoutName = 'chest shoulders triceps';
         log(`Creating workout: "${workoutName}"`, 'workout');
-        const workout = await createWorkout(token, workoutName);
+        const workout = await createWorkout(token, user.id, workoutName);
         log(`Workout created with ID: ${workout.id}`, 'success');
         console.log(JSON.stringify(workout, null, 2));
 
@@ -93,7 +93,8 @@ async function runSessionTest() {
             
             // Log 3 sets for this exercise
             const isFirst = (exerciseIdx === 0);
-            await logExerciseSets(token, workoutId, exercise, 3, isFirst);
+            const workoutPosition = exerciseIdx * 3;
+            await logExerciseSets(token, user.id, workoutId, exercise, 3, isFirst, workoutPosition);
             
             log(`  ✓ Completed 3 sets of ${exercise.name}`, 'success');
             

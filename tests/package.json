@@ -2,14 +2,15 @@
   "name": "flexlog-auth-test",
   "version": "1.0.0",
   "description": "Test scripts for FlexLog authentication and session tracking",
-  "main": "test-auth.js",
+  "main": "test-cache.js",
   "type": "module",
   "scripts": {
-    "test": "node test-auth.js",
+    "test": "node test-cache.js",
+    "test:cache": "node test-cache.js",
+    "test:fixture": "node test-fixture.js",
     "test:session": "node test-session.js",
-    "test:data": "node test-data-visualization.js",
     "test:model": "node test-model-workout.js",
-    "check:redis": "node check-redis-session.js"
+    "test:all": "node test-fixture.js && node test-cache.js && node test-model-workout.js && node test-session.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",

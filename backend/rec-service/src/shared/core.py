@@ -276,8 +276,14 @@ def recommendation_core(workout_id: int, workout_name: str, exercise_id: int, us
 
         logger.info("Top N count: %s", len(top_recommendations) if top_recommendations is not None else 0)
 
+        recs = top_recommendations.to_dict(orient="records")
+        for r in recs:
+            for k, v in list(r.items()):
+                if pd.isna(v):
+                    r[k] = None
+
         return {
-            "recommendations": top_recommendations.to_dict(orient="records"),
+            "recommendations": recs,
         }
     finally:
         if conn: 

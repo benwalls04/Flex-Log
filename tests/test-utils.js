@@ -16,8 +16,8 @@ dotenv.config({ path: '.env.test' });
 export const config = {
     SUPABASE_URL: process.env.SUPABASE_URL || 'https://kauffaiclsbufnwyiuau.supabase.co',
     SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
+    // API gateway base URL: tracking routes (workouts, logs, exercises) + recommendation route (/recommendation)
     TRACKING_API_URL: process.env.TRACKING_API_URL || 'http://localhost:8080/api',
-    RECOMMENDATION_API_URL: process.env.RECOMMENDATION_API_URL || 'http://localhost:8000',
     EMAIL: process.env.TEST_EMAIL,
     PASSWORD: process.env.TEST_PASSWORD,
     REDIS_HOST: process.env.REDIS_HOST,
@@ -132,15 +132,23 @@ export async function signInUser() {
 // TRACKING SERVICE API (Spring Boot)
 // ==========================================
 
+/** Build headers for tracking API (auth + optional X-User-Id). */
+function trackingHeaders(token, userId = null) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+    };
+    if (userId) headers['X-User-Id'] = userId;
+    return headers;
+}
+
 /**
  * Fetch all exercises from the tracking service
  */
 export async function getAllExercises(token) {
-    const response = await fetch(`${config.TRACKING_API_URL}/exercises/`, {
+    const response = await fetch(`${config.TRACKING_API_URL}/exercises`, {
         method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${token}`
-        }
+        headers: trackingHeaders(token),
     });
 
     if (!response.ok) {
@@ -179,22 +187,20 @@ export function buildExerciseLookup(exercises) {
 /**
  * Create a new workout session
  * @param {string} token - JWT access token
+ * @param {string} userId - User UUID (from sign-in)
  * @param {string} workoutName - Name of the workout (e.g., "chest back biceps")
  * @returns {Object} Created workout object with id
  */
-export async function createWorkout(token, workoutName) {
+export async function createWorkout(token, userId, workoutName) {
     const workoutData = {
         name: workoutName,
         date: new Date().toISOString(),
     };
 
-    const response = await fetch(`${config.TRACKING_API_URL}/workouts/`, {
+    const response = await fetch(`${config.TRACKING_API_URL}/workouts`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(workoutData)
+        headers: trackingHeaders(token, userId),
+        body: JSON.stringify(workoutData),
     });
 
     if (!response.ok) {
@@ -206,32 +212,68 @@ export async function createWorkout(token, workoutName) {
 }
 
 /**
+ * Get all workouts for the authenticated user
+ */
+export async function getAllWorkouts(token, userId) {
+    const response = await fetch(`${config.TRACKING_API_URL}/workouts`, {
+        method: 'GET',
+        headers: trackingHeaders(token, userId),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Get all workouts failed: ${response.status} - ${errorText}`);
+    }
+
+    return await response.json();
+}
+
+/**
+ * Get a single workout by id
+ */
+export async function getWorkout(token, userId, workoutId) {
+    const response = await fetch(`${config.TRACKING_API_URL}/workouts/${workoutId}`, {
+        method: 'GET',
+        headers: trackingHeaders(token, userId),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Get workout failed: ${response.status} - ${errorText}`);
+    }
+
+    return await response.json();
+}
+
+/**
  * Log a single set for an exercise
  * @param {string} token - JWT access token
+ * @param {string} userId - User UUID (from sign-in)
  * @param {number} workoutId - Workout ID
  * @param {number} exerciseId - Exercise ID
  * @param {number} weight - Weight in lbs
  * @param {number} reps - Number of reps
  * @param {boolean} isFirst - Whether this is the first exercise of the workout
+ * @param {number} workoutPosition - Position in workout (0-based)
  * @returns {Object} Created log object
  */
-export async function createLog(token, workoutId, exerciseId, weight, reps, isFirst) {
+export async function createLog(token, userId, workoutId, exerciseId, weight, reps, isFirst, workoutPosition = 0) {
     const logData = {
         workout: { id: workoutId },
         exercise: { id: exerciseId },
         weight: weight,
         reps: reps,
         first: isFirst ? 1 : 0,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
     };
 
-    const response = await fetch(`${config.TRACKING_API_URL}/logs/`, {
+    const url = new URL(`${config.TRACKING_API_URL}/logs`);
+    url.searchParams.set('workoutPosition', String(workoutPosition));
+
+    const response = await fetch(url.toString(), {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(logData)
+        headers: trackingHeaders(token, userId),
+        body: JSON.stringify(logData),
     });
 
     if (!response.ok) {
@@ -243,16 +285,85 @@ export async function createLog(token, workoutId, exerciseId, weight, reps, isFi
 }
 
 /**
+ * Get all logs for the authenticated user
+ */
+export async function getAllLogs(token, userId) {
+    const response = await fetch(`${config.TRACKING_API_URL}/logs`, {
+        method: 'GET',
+        headers: trackingHeaders(token, userId),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Get all logs failed: ${response.status} - ${errorText}`);
+    }
+
+    return await response.json();
+}
+
+/**
+ * Get a single log by id
+ */
+export async function getLog(token, userId, logId) {
+    const response = await fetch(`${config.TRACKING_API_URL}/logs/${logId}`, {
+        method: 'GET',
+        headers: trackingHeaders(token, userId),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Get log failed: ${response.status} - ${errorText}`);
+    }
+
+    return await response.json();
+}
+
+/**
+ * Update a log (e.g. reps, weight)
+ */
+export async function updateLog(token, userId, logId, body) {
+    const response = await fetch(`${config.TRACKING_API_URL}/logs/${logId}`, {
+        method: 'PUT',
+        headers: trackingHeaders(token, userId),
+        body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Update log failed: ${response.status} - ${errorText}`);
+    }
+
+    return await response.json();
+}
+
+/**
+ * Delete a log (returns 204 No Content)
+ */
+export async function deleteLog(token, userId, logId) {
+    const response = await fetch(`${config.TRACKING_API_URL}/logs/${logId}`, {
+        method: 'DELETE',
+        headers: trackingHeaders(token, userId),
+    });
+
+    if (!response.ok && response.status !== 204) {
+        const errorText = await response.text();
+        throw new Error(`Delete log failed: ${response.status} - ${errorText}`);
+    }
+}
+
+/**
  * Log multiple sets for a single exercise
  * @param {string} token - JWT access token
+ * @param {string} userId - User UUID (from sign-in)
  * @param {number} workoutId - Workout ID
  * @param {Object} exercise - Exercise object with id, name, variant
  * @param {number} numSets - Number of sets to log
  * @param {boolean} isFirst - Whether this is the first exercise of the workout
+ * @param {number} workoutPosition - Current position in workout (0-based)
  * @param {Object} options - Optional parameters (weight, reps, delayMs)
  * @returns {Array} Array of created log objects
  */
-export async function logExerciseSets(token, workoutId, exercise, numSets = 3, isFirst = false, options = {}) {
+export async function logExerciseSets(token, userId, workoutId, exercise, numSets = 3, isFirst = false, workoutPosition = 0, options = {}) {
     const {
         weight = 135,
         reps = 12,
@@ -266,11 +377,13 @@ export async function logExerciseSets(token, workoutId, exercise, numSets = 3, i
         
         const logEntry = await createLog(
             token,
+            userId,
             workoutId,
             exercise.id,
             weight,
             reps,
-            isFirst
+            isFirst,
+            workoutPosition
         );
         
         logs.push(logEntry);
@@ -279,35 +392,40 @@ export async function logExerciseSets(token, workoutId, exercise, numSets = 3, i
         if (set < numSets && delayMs > 0) {
             await sleep(delayMs);
         }
+        workoutPosition += 1;
     }
     
     return logs;
 }
 
 // ==========================================
-// RECOMMENDATION SERVICE API (FastAPI)
+// RECOMMENDATION (same API gateway as tracking, path /recommendation → rec-service Lambda)
 // ==========================================
 
 /**
- * Get exercise recommendations
+ * Get exercise recommendations (POST {baseUrl}/recommendation with JSON body)
  * @param {string} token - JWT access token
  * @param {number} workoutId - Workout ID
  * @param {string} workoutName - Workout name (muscle groups)
  * @param {number} lastExerciseId - ID of the last exercise completed
+ * @param {number} [workoutPosition=0] - Position in workout (0-based)
  * @returns {Object} Recommendation response with top_muscle, top_machine, top_type, recommendations
  */
-export async function getRecommendation(token, workoutId, workoutName, lastExerciseId) {
-    const params = new URLSearchParams({
-        workout_id: workoutId,
+export async function getRecommendation(token, workoutId, workoutName, lastExerciseId, workoutPosition = 0) {
+    const body = {
+        workout_id: String(workoutId),
         workout_name: workoutName,
-        exercise_id: lastExerciseId
-    });
+        exercise_id: String(lastExerciseId),
+        workout_position: String(workoutPosition)
+    };
 
-    const response = await fetch(`${config.RECOMMENDATION_API_URL}/recommendation?${params}`, {
-        method: 'GET',
+    const response = await fetch(`${config.TRACKING_API_URL}/recommendation`, {
+        method: 'POST',
         headers: {
-            'Authorization': `Bearer ${token}`
-        }
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
     });
 
     if (!response.ok) {
