@@ -52,7 +52,7 @@ public class LogService {
     }
 
     public List<Log> getLogsByUserId(UUID userId) {
-        return logRepository.findByUserId(userId);
+        return logRepository.findByUserIdOrderByTimestampDesc(userId);
     }
 
     public Log createLog(Log log, UUID userId, Integer workoutPosition) {

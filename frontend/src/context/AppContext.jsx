@@ -8,6 +8,11 @@ export function AppProvider({ children }) {
   const [logs, setLogs] = useState([]);
   const [exercisesLoaded, setExercisesLoaded] = useState(false);
   const [logsLoaded, setLogsLoaded] = useState(false);
+  /* Active workout persists across tab switches until user clicks Finish Workout */
+  const [activeWorkout, setActiveWorkout] = useState(null);
+  const [workoutPosition, setWorkoutPosition] = useState(0);
+  const [selectedExercise, setSelectedExercise] = useState(null);
+  const [recommendations, setRecommendations] = useState([]);
 
   const loadExercises = useCallback(async () => {
     try {
@@ -24,7 +29,13 @@ export function AppProvider({ children }) {
   const loadLogs = useCallback(async () => {
     try {
       const data = await api.getAllLogs();
-      setLogs(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      list.sort((a, b) => {
+        const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return tb - ta;
+      });
+      setLogs(list);
     } catch (e) {
       console.error('Failed to load logs', e);
       setLogs([]);
@@ -37,6 +48,13 @@ export function AppProvider({ children }) {
     setLogs((prev) => [logEntry, ...prev]);
   }, []);
 
+  const clearActiveWorkout = useCallback(() => {
+    setActiveWorkout(null);
+    setWorkoutPosition(0);
+    setSelectedExercise(null);
+    setRecommendations([]);
+  }, []);
+
   const value = {
     exercises,
     setExercises,
@@ -47,6 +65,15 @@ export function AppProvider({ children }) {
     logsLoaded,
     loadLogs,
     appendLog,
+    activeWorkout,
+    setActiveWorkout,
+    workoutPosition,
+    setWorkoutPosition,
+    selectedExercise,
+    setSelectedExercise,
+    recommendations,
+    setRecommendations,
+    clearActiveWorkout,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

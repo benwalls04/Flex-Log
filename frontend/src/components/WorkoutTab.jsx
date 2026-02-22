@@ -15,13 +15,23 @@ function muscleGroupMatch(ex, groups) {
 }
 
 export default function WorkoutTab() {
-  const { exercises, exercisesLoaded, appendLog } = useApp();
+  const {
+    exercises,
+    exercisesLoaded,
+    appendLog,
+    activeWorkout: workout,
+    setActiveWorkout,
+    workoutPosition,
+    setWorkoutPosition,
+    selectedExercise,
+    setSelectedExercise,
+    recommendations,
+    setRecommendations,
+    clearActiveWorkout,
+  } = useApp();
   const [selectedMuscles, setSelectedMuscles] = useState([]);
-  const [workout, setWorkout] = useState(null);
-  const [workoutPosition, setWorkoutPosition] = useState(0);
-  const [selectedExercise, setSelectedExercise] = useState(null);
-  const [recommendations, setRecommendations] = useState([]);
-  const [search, setSearch] = useState('');
+  const [popupOpen, setPopupOpen] = useState(false);
+  const [popupSearch, setPopupSearch] = useState('');
   const [weight, setWeight] = useState('');
   const [reps, setReps] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,25 +42,25 @@ export default function WorkoutTab() {
     [workout?.name]
   );
 
-  const filteredExercises = useMemo(() => {
+  const filteredExercisesForPopup = useMemo(() => {
     if (!exercises.length) return [];
     const byMuscle = workoutMuscleGroups.length
       ? exercises.filter((ex) => muscleGroupMatch(ex, workoutMuscleGroups))
       : exercises;
-    if (!search.trim()) return byMuscle;
-    const q = search.toLowerCase();
+    if (!popupSearch.trim()) return byMuscle;
+    const q = popupSearch.toLowerCase();
     return byMuscle.filter(
       (ex) =>
         (ex.name || '').toLowerCase().includes(q) ||
         (ex.variant || '').toLowerCase().includes(q)
     );
-  }, [exercises, workoutMuscleGroups, search]);
+  }, [exercises, workoutMuscleGroups, popupSearch]);
 
   const exerciseListWithRecs = useMemo(() => {
     const recIds = new Set((recommendations || []).map((r) => r.id));
-    const rest = filteredExercises.filter((ex) => !recIds.has(ex.id));
+    const rest = filteredExercisesForPopup.filter((ex) => !recIds.has(ex.id));
     return [...(recommendations || []), ...rest];
-  }, [recommendations, filteredExercises]);
+  }, [recommendations, filteredExercisesForPopup]);
 
   const toggleMuscle = (m) => {
     setSelectedMuscles((prev) =>
@@ -69,11 +79,11 @@ export default function WorkoutTab() {
       const name = selectedMuscles.join(' ').toLowerCase();
       const date = new Date().toISOString();
       const created = await api.createWorkout(name, date);
-      setWorkout(created);
+      setActiveWorkout(created);
       setWorkoutPosition(0);
       setRecommendations([]);
       setSelectedExercise(null);
-      setSearch('');
+      setPopupSearch('');
     } catch (e) {
       setError(e.message || 'Failed to start workout');
     } finally {
@@ -81,22 +91,19 @@ export default function WorkoutTab() {
     }
   };
 
-  const selectExercise = async (ex) => {
+  const selectExerciseFromPopup = (ex) => {
     setSelectedExercise(ex);
     setWeight('');
     setReps('');
-    if (!workout || !ex) return;
-    try {
-      const recs = await api.getRecommendation(
-        workout.id,
-        workout.name,
-        ex.id,
-        workoutPosition
-      );
-      setRecommendations(Array.isArray(recs?.recommendations) ? recs.recommendations : []);
-    } catch {
-      setRecommendations([]);
-    }
+    setPopupOpen(false);
+    setPopupSearch('');
+  };
+
+  const loadRecommendationsInBackground = (workoutId, workoutName, exerciseId, pos) => {
+    api
+      .getRecommendation(workoutId, workoutName, exerciseId, pos)
+      .then((res) => setRecommendations(Array.isArray(res?.recommendations) ? res.recommendations : []))
+      .catch(() => setRecommendations([]));
   };
 
   const submitSet = async (e) => {
@@ -121,9 +128,11 @@ export default function WorkoutTab() {
         workoutPosition
       );
       appendLog(created);
+      const positionUsed = workoutPosition;
       setWorkoutPosition((p) => p + 1);
       setWeight('');
       setReps('');
+      loadRecommendationsInBackground(workout.id, workout.name, selectedExercise.id, positionUsed);
     } catch (err) {
       setError(err.message || 'Failed to log set');
     } finally {
@@ -132,11 +141,8 @@ export default function WorkoutTab() {
   };
 
   const finishWorkout = () => {
-    setWorkout(null);
-    setWorkoutPosition(0);
-    setSelectedExercise(null);
-    setRecommendations([]);
-    setSearch('');
+    clearActiveWorkout();
+    setPopupSearch('');
     setError('');
   };
 
@@ -193,35 +199,16 @@ export default function WorkoutTab() {
         </button>
       </div>
 
-      <div className="rounded-xl border border-border bg-surface p-4 space-y-4">
-        <label className="block text-sm font-medium text-muted-foreground">
-          Select exercise
-        </label>
-        <input
-          type="text"
-          placeholder="Search exercises..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-        />
-        <div className="max-h-48 overflow-y-auto rounded-lg border border-border divide-y divide-border">
-          {exerciseListWithRecs.map((ex) => (
-            <button
-              key={ex.id}
-              type="button"
-              onClick={() => selectExercise(ex)}
-              className={`w-full text-left px-3 py-2 text-sm hover:bg-muted flex justify-between items-center ${
-                selectedExercise?.id === ex.id ? 'bg-primary-muted' : ''
-              }`}
-            >
-              <span>{exerciseName(ex)}</span>
-              {recommendations.some((r) => r.id === ex.id) && (
-                <span className="text-xs text-primary font-medium">Recommended</span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
+      <button
+        type="button"
+        onClick={() => { setPopupOpen(true); setPopupSearch(''); }}
+        className="w-full rounded-xl border border-border bg-surface px-4 py-3 text-left font-medium hover:bg-muted transition-colors"
+      >
+        {selectedExercise ? 'Select next exercise' : 'Select exercise'}
+      </button>
+      {selectedExercise && (
+        <p className="text-sm text-muted-foreground">Current: {exerciseName(selectedExercise)}</p>
+      )}
 
       {selectedExercise && (
         <div className="rounded-xl border border-border bg-surface p-4 space-y-4">
@@ -259,6 +246,70 @@ export default function WorkoutTab() {
             </button>
           </form>
           {error && <p className="text-sm text-danger">{error}</p>}
+        </div>
+      )}
+
+      {popupOpen && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center p-4 bg-black/60" onClick={() => setPopupOpen(false)}>
+          <div
+            className="bg-surface border border-border rounded-xl shadow-xl w-full max-w-md max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h3 className="text-lg font-semibold">Select exercise</h3>
+              <button
+                type="button"
+                onClick={() => { setPopupOpen(false); setPopupSearch(''); }}
+                className="p-2 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Close"
+              >
+                <span className="text-xl leading-none">×</span>
+              </button>
+            </div>
+            {recommendations.length > 0 && (
+              <div className="px-4 pt-3">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Recommended</p>
+                <div className="flex flex-wrap gap-2">
+                  {recommendations.slice(0, 5).map((ex) => (
+                    <button
+                      key={ex.id}
+                      type="button"
+                      onClick={() => selectExerciseFromPopup(ex)}
+                      className="rounded-lg border border-primary bg-primary-muted px-3 py-1.5 text-sm text-primary hover:bg-primary hover:text-white transition-colors"
+                    >
+                      {exerciseName(ex)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="p-4 pt-2 flex-1 min-h-0 flex flex-col">
+              <input
+                type="text"
+                placeholder="Search exercises..."
+                value={popupSearch}
+                onChange={(e) => setPopupSearch(e.target.value)}
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary mb-3"
+              />
+              <div className="overflow-y-auto flex-1 rounded-lg border border-border divide-y divide-border max-h-64">
+                {exerciseListWithRecs.map((ex) => (
+                  <button
+                    key={ex.id}
+                    type="button"
+                    onClick={() => selectExerciseFromPopup(ex)}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-muted flex justify-between items-center ${
+                      selectedExercise?.id === ex.id ? 'bg-primary-muted' : ''
+                    }`}
+                  >
+                    <span>{exerciseName(ex)}</span>
+                    {recommendations.some((r) => r.id === ex.id) && (
+                      <span className="text-xs text-primary font-medium">Recommended</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

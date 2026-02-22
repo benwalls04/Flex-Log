@@ -8,5 +8,5 @@ import java.util.UUID;
 
 @Repository
 public interface LogRepository extends JpaRepository<Log, Integer> {
-    List<Log> findByUserId(UUID userId);
+    List<Log> findByUserIdOrderByTimestampDesc(UUID userId);
 }

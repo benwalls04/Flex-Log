@@ -3,36 +3,19 @@
 @tailwind utilities;
 
 /*
- * Theme: override these variables to change the whole app look.
- * Example themes can use different --color-* values.
+ * Theme: dark gray/black + red. Override these variables to change the app look.
  */
 :root {
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-primary-muted: #dbeafe;
-  --color-surface: #ffffff;
-  --color-surface-elevated: #f9fafb;
-  --color-border: #e5e7eb;
-  --color-muted: #f3f4f6;
-  --color-muted-foreground: #6b7280;
-  --color-danger: #dc2626;
-  --color-danger-hover: #b91c1c;
-  --color-background: #f9fafb;
-  --color-foreground: #111827;
-}
-
-/* Example: dark theme (add class "dark" to html to enable) */
-.dark {
-  --color-primary: #60a5fa;
-  --color-primary-hover: #93c5fd;
-  --color-primary-muted: #1e3a8a;
+  --color-primary: #dc2626;
+  --color-primary-hover: #b91c1c;
+  --color-primary-muted: #450a0a;
   --color-surface: #1f2937;
   --color-surface-elevated: #374151;
-  --color-border: #4b5563;
+  --color-border: #374151;
   --color-muted: #374151;
   --color-muted-foreground: #9ca3af;
-  --color-danger: #f87171;
-  --color-danger-hover: #fca5a5;
+  --color-danger: #ef4444;
+  --color-danger-hover: #dc2626;
   --color-background: #111827;
   --color-foreground: #f3f4f6;
 }
